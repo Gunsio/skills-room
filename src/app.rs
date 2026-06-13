@@ -2,13 +2,31 @@ use std::time::Duration;
 
 use color_eyre::eyre::Result;
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
-use ratatui::{DefaultTerminal, Frame, layout::Alignment, widgets::Paragraph};
+use ratatui::{DefaultTerminal, Frame};
 
-use crate::layout::{AppLayout, too_small_message};
+use crate::skill::{SkillRecord, fixture_skills};
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct App {
     should_quit: bool,
+    skills: Vec<SkillRecord>,
+    selected: usize,
+    output: Vec<String>,
+}
+
+impl Default for App {
+    fn default() -> Self {
+        Self {
+            should_quit: false,
+            skills: fixture_skills(),
+            selected: 0,
+            output: vec![
+                "[system] Skillroom daemon started.".to_string(),
+                "[skill] Loaded fixture skills from local storage.".to_string(),
+                "[prompt] Ready for command.".to_string(),
+            ],
+        }
+    }
 }
 
 impl App {
@@ -22,17 +40,7 @@ impl App {
     }
 
     fn render(&self, frame: &mut Frame<'_>) {
-        let area = frame.area();
-        let Some(layout) = AppLayout::calculate(area) else {
-            frame.render_widget(Paragraph::new(too_small_message(area)).centered(), area);
-            return;
-        };
-
-        frame.render_widget(
-            Paragraph::new(format!("Skillroom TUI [{:?}]", layout.tier))
-                .alignment(Alignment::Center),
-            layout.search,
-        );
+        crate::ui::render(self, frame);
     }
 
     fn handle_events(&mut self) -> Result<()> {
@@ -54,5 +62,21 @@ impl App {
             }
             _ => {}
         }
+    }
+
+    pub(crate) fn skills(&self) -> &[SkillRecord] {
+        &self.skills
+    }
+
+    pub(crate) fn selected_index(&self) -> usize {
+        self.selected
+    }
+
+    pub(crate) fn selected_skill(&self) -> Option<&SkillRecord> {
+        self.skills.get(self.selected)
+    }
+
+    pub(crate) fn output(&self) -> &[String] {
+        &self.output
     }
 }

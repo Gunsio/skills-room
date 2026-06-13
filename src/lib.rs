@@ -2,6 +2,7 @@ mod app;
 mod layout;
 pub mod skill;
 mod terminal;
+mod ui;
 
 pub use app::App;
 
