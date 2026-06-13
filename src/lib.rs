@@ -1,3 +1,4 @@
+pub mod actions;
 pub mod agentbuddy;
 pub mod agentbuddy_marketplace;
 pub mod cache;
