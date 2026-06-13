@@ -5,7 +5,7 @@ use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifier
 use ratatui::{DefaultTerminal, Frame};
 
 use crate::{
-    config::{AppConfig, LoadedConfig, SourceSettings},
+    config::{AppConfig, LoadedConfig, SourceKind, SourceSettings},
     i18n::{I18nCatalog, I18nKey},
     skill::{RiskLevel, SkillRecord, SkillScope, SkillState, Source, fixture_skills},
     theme::{ThemePalette, ThemeRegistry},
@@ -394,8 +394,18 @@ impl App {
                 self.push_output("[settings] Safety locks remain enabled.");
             }
             SettingsAction::SourceAdd => {
-                let index = self.settings.draft.sources.len() + 1;
-                let source = SourceSettings::custom(index);
+                let source = if self
+                    .settings
+                    .draft
+                    .sources
+                    .iter()
+                    .any(|source| source.kind == SourceKind::AgentBuddy)
+                {
+                    let index = self.settings.draft.sources.len() + 1;
+                    SourceSettings::custom(index)
+                } else {
+                    SourceSettings::bytedance()
+                };
                 self.push_output(&format!("[settings] Added source {}.", source.name));
                 self.settings.draft.sources.push(source);
             }
@@ -1207,6 +1217,38 @@ mod tests {
             app.output()
                 .iter()
                 .any(|line| line.contains("no remote request"))
+        );
+    }
+
+    #[test]
+    fn settings_add_source_restores_agentbuddy_when_missing() {
+        let temp = tempdir().unwrap();
+        let path = temp.path().join("config.toml");
+        let mut app = App::from_skills_with_config(
+            fixture_skills(),
+            LoadedConfig {
+                path: path.clone(),
+                config: AppConfig {
+                    sources: vec![SourceSettings::custom(1)],
+                    ..AppConfig::default()
+                },
+                warnings: Vec::new(),
+            },
+        );
+
+        app.handle_key(KeyEvent::from(KeyCode::Char(',')));
+        move_to_setting(&mut app, "Sources");
+        app.handle_key(KeyEvent::from(KeyCode::Enter));
+        move_to_setting(&mut app, "Save");
+        app.handle_key(KeyEvent::from(KeyCode::Enter));
+
+        let loaded = load_or_default(path);
+        assert!(
+            loaded
+                .config
+                .sources
+                .iter()
+                .any(|source| source.name == "bytedance-agentbuddy")
         );
     }
 
