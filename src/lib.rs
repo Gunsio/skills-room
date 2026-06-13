@@ -11,6 +11,7 @@ mod app;
 mod layout;
 pub mod skill;
 mod terminal;
+pub mod theme;
 mod ui;
 
 pub use app::{App, FilterState, FocusArea, InputMode, SortColumn};

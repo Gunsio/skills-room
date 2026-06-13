@@ -7,6 +7,7 @@ use ratatui::{DefaultTerminal, Frame};
 use crate::{
     config::{AppConfig, LoadedConfig},
     skill::{RiskLevel, SkillRecord, SkillScope, SkillState, Source, fixture_skills},
+    theme::{ThemePalette, ThemeRegistry},
 };
 
 #[derive(Debug)]
@@ -448,6 +449,10 @@ impl App {
         &self.config_path
     }
 
+    pub(crate) fn theme(&self) -> ThemePalette {
+        ThemeRegistry::get(self.config.theme)
+    }
+
     pub(crate) fn settings_open(&self) -> bool {
         self.settings.open
     }
@@ -641,6 +646,7 @@ fn contains_case_insensitive(haystack: &str, needle: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::ThemeName;
 
     #[test]
     fn focus_order_covers_placeholders() {
@@ -857,5 +863,22 @@ mod tests {
                 .iter()
                 .any(|line| line.contains("Selected Theme"))
         );
+    }
+
+    #[test]
+    fn configured_theme_drives_palette() {
+        let app = App::from_skills_with_config(
+            fixture_skills(),
+            LoadedConfig {
+                path: PathBuf::from("config.toml"),
+                config: AppConfig {
+                    theme: ThemeName::GruvboxDark,
+                    ..AppConfig::default()
+                },
+                warnings: Vec::new(),
+            },
+        );
+
+        assert_eq!(app.theme().name, ThemeName::GruvboxDark);
     }
 }
