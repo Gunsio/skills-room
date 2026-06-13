@@ -178,16 +178,22 @@ impl App {
                 .as_ref()
                 .map(|error| format!("[error] {}: {error}", skill.name))
         }));
+        let (config, normalization_warnings) = loaded_config.config.normalized();
         output.extend(
             loaded_config
                 .warnings
                 .iter()
                 .map(|warning| format!("[config] {warning}")),
         );
+        output.extend(
+            normalization_warnings
+                .iter()
+                .map(|warning| format!("[config] {warning}")),
+        );
 
-        let i18n = I18nCatalog::new(loaded_config.config.language);
+        let i18n = I18nCatalog::new(config.language);
         output.extend(i18n.errors().iter().map(|error| format!("[i18n] {error}")));
-        let settings = SettingsState::closed(loaded_config.config.clone());
+        let settings = SettingsState::closed(config.clone());
 
         Self {
             should_quit: false,
@@ -204,7 +210,7 @@ impl App {
             stream_tick: 0,
             stream_cursor: 0,
             config_path: loaded_config.path,
-            config: loaded_config.config,
+            config,
             i18n,
             settings,
         }
@@ -378,6 +384,11 @@ impl App {
                 self.settings.draft.cache.last_status = "clear-requested".to_string();
                 self.push_output("[settings] Cache clear requested.");
             }
+            4 => {
+                self.settings.draft.safety.delete_confirmation = true;
+                self.settings.draft.safety.home_delete_guard = true;
+                self.push_output("[settings] Safety locks remain enabled.");
+            }
             6 => self.save_settings(),
             _ => {
                 let label = self
@@ -547,7 +558,7 @@ impl App {
             ),
             SettingsRow::new(
                 self.text(I18nKey::SettingsSafety),
-                "delete confirmation locked",
+                safety_summary(&self.settings.draft),
                 self.text(I18nKey::HintSafety),
             ),
             SettingsRow::new(
@@ -674,6 +685,14 @@ fn next_cache_ttl(current: u64) -> u64 {
     TTL_VALUES[(index + 1) % TTL_VALUES.len()]
 }
 
+fn safety_summary(config: &AppConfig) -> &'static str {
+    if config.safety.delete_confirmation && config.safety.home_delete_guard {
+        "delete confirmation + HOME guard locked"
+    } else {
+        "restored on save"
+    }
+}
+
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub(crate) struct SettingsRow {
     pub label: String,
@@ -726,7 +745,7 @@ fn contains_case_insensitive(haystack: &str, needle: &str) -> bool {
 mod tests {
     use super::*;
     use crate::{
-        config::{Language, ThemeName, load_or_default},
+        config::{Language, SafetySettings, ThemeName, load_or_default},
         i18n::I18nKey,
     };
     use tempfile::tempdir;
@@ -1028,6 +1047,43 @@ mod tests {
         let loaded = load_or_default(path);
         assert_eq!(loaded.config.cache.ttl_seconds, 3_600);
         assert_eq!(loaded.config.cache.last_status, "clear-requested");
+    }
+
+    #[test]
+    fn settings_safety_controls_cannot_disable_guards() {
+        let temp = tempdir().unwrap();
+        let path = temp.path().join("config.toml");
+        let mut app = App::from_skills_with_config(
+            fixture_skills(),
+            LoadedConfig {
+                path: path.clone(),
+                config: AppConfig {
+                    safety: SafetySettings {
+                        delete_confirmation: false,
+                        home_delete_guard: false,
+                    },
+                    ..AppConfig::default()
+                },
+                warnings: Vec::new(),
+            },
+        );
+
+        assert!(app.config.safety.delete_confirmation);
+        assert!(app.config.safety.home_delete_guard);
+
+        app.handle_key(KeyEvent::from(KeyCode::Char(',')));
+        for _ in 0..4 {
+            app.handle_key(KeyEvent::from(KeyCode::Down));
+        }
+        app.handle_key(KeyEvent::from(KeyCode::Enter));
+        for _ in 0..2 {
+            app.handle_key(KeyEvent::from(KeyCode::Down));
+        }
+        app.handle_key(KeyEvent::from(KeyCode::Enter));
+
+        let loaded = load_or_default(path);
+        assert!(loaded.config.safety.delete_confirmation);
+        assert!(loaded.config.safety.home_delete_guard);
     }
 
     #[test]

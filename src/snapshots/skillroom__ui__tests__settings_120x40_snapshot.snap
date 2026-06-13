@@ -1,6 +1,6 @@
 ---
 source: src/ui.rs
-assertion_line: 469
+assertion_line: 617
 expression: "render_settings_snapshot(120, 40)"
 ---
 ┌Command───────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
@@ -17,7 +17,7 @@ expression: "render_settings_snapshot(120, 40)"
 │                │  Language    English  Enter cycles language                                        │                │
 │                │  Cache TTL   1800s  Enter cycles TTL                                               │s, 0 assets, 360│
 │                │  Cache       ready  Enter clears cache state                                       │                │
-│                │  Safety      delete confirmation locked  Cannot disable guard rails                │                │
+│                │  Safety      delete confirmation + HOME guard locked  Cannot disable guard rails   │                │
 │                │  Sources     1 configured  Enter manages source                                    │                │
 │                │  Save        persist config.toml  Enter writes config                              │sts with reposit│
 │                │                                                                                    │                │
