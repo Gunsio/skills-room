@@ -120,6 +120,16 @@ pub struct SkillStats {
     pub modified_unix_seconds: Option<u64>,
 }
 
+#[derive(Debug, Clone, Default, Eq, PartialEq, Serialize, Deserialize)]
+pub struct SkillMetadata {
+    pub source_id: Option<String>,
+    pub star_count: Option<u64>,
+    pub installable: bool,
+    pub installed: bool,
+    pub compatible_agents: Vec<String>,
+    pub source_status: Option<String>,
+}
+
 #[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
 pub struct SkillRecord {
     pub name: String,
@@ -136,6 +146,8 @@ pub struct SkillRecord {
     pub tags: Vec<String>,
     pub command_plan: CommandPlan,
     pub stats: SkillStats,
+    #[serde(default)]
+    pub metadata: SkillMetadata,
     pub error: Option<String>,
 }
 
@@ -150,6 +162,37 @@ impl SkillRecord {
 
     pub fn update_label(&self) -> &str {
         self.update.as_deref().unwrap_or("current")
+    }
+
+    pub fn metadata_label(&self) -> String {
+        let mut parts = Vec::new();
+        if let Some(stars) = self.metadata.star_count {
+            parts.push(format!("stars={stars}"));
+        }
+        if self.metadata.installable {
+            parts.push("installable".to_string());
+        }
+        if self.metadata.installed {
+            parts.push("installed".to_string());
+        }
+        if !self.metadata.compatible_agents.is_empty() {
+            parts.push(format!(
+                "agents={}",
+                self.metadata.compatible_agents.join("|")
+            ));
+        }
+        if let Some(status) = &self.metadata.source_status {
+            parts.push(format!("source={status}"));
+        }
+        if let Some(source_id) = &self.metadata.source_id {
+            parts.push(format!("id={source_id}"));
+        }
+
+        if parts.is_empty() {
+            "none".to_string()
+        } else {
+            parts.join(", ")
+        }
     }
 }
 
@@ -182,6 +225,11 @@ pub fn fixture_skills() -> Vec<SkillRecord> {
                 line_count: 420,
                 modified_unix_seconds: None,
             },
+            metadata: SkillMetadata {
+                installed: true,
+                source_status: Some("local".to_string()),
+                ..SkillMetadata::default()
+            },
             error: None,
         },
         SkillRecord {
@@ -205,6 +253,14 @@ pub fn fixture_skills() -> Vec<SkillRecord> {
                 assets: 0,
                 line_count: 780,
                 modified_unix_seconds: None,
+            },
+            metadata: SkillMetadata {
+                source_id: Some("skills:data-analysis".to_string()),
+                star_count: Some(128),
+                installable: true,
+                installed: true,
+                compatible_agents: strings(["codex", "claude"]),
+                source_status: Some("internal".to_string()),
             },
             error: None,
         },
@@ -235,6 +291,11 @@ pub fn fixture_skills() -> Vec<SkillRecord> {
                 line_count: 360,
                 modified_unix_seconds: None,
             },
+            metadata: SkillMetadata {
+                installed: true,
+                source_status: Some("curated".to_string()),
+                ..SkillMetadata::default()
+            },
             error: None,
         },
         SkillRecord {
@@ -258,6 +319,11 @@ pub fn fixture_skills() -> Vec<SkillRecord> {
                 assets: 1,
                 line_count: 240,
                 modified_unix_seconds: None,
+            },
+            metadata: SkillMetadata {
+                installed: true,
+                source_status: Some("github".to_string()),
+                ..SkillMetadata::default()
             },
             error: None,
         },
@@ -286,6 +352,11 @@ pub fn fixture_skills() -> Vec<SkillRecord> {
                 assets: 0,
                 line_count: 110,
                 modified_unix_seconds: None,
+            },
+            metadata: SkillMetadata {
+                installed: true,
+                source_status: Some("local-archive".to_string()),
+                ..SkillMetadata::default()
             },
             error: Some("SKILL.md frontmatter is missing required fields".to_string()),
         },

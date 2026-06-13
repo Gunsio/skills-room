@@ -3,7 +3,8 @@ use std::{fmt, path::PathBuf, process::Command};
 use serde::Deserialize;
 
 use crate::skill::{
-    Agent, CommandPlan, RiskLevel, SkillRecord, SkillScope, SkillState, SkillStats, Source,
+    Agent, CommandPlan, RiskLevel, SkillMetadata, SkillRecord, SkillScope, SkillState, SkillStats,
+    Source,
 };
 
 #[derive(Debug, Clone)]
@@ -116,6 +117,11 @@ impl NpxSkillEntry {
             tags: Vec::new(),
             command_plan: CommandPlan::default(),
             stats: SkillStats::default(),
+            metadata: SkillMetadata {
+                installed: true,
+                source_status: Some("npx".to_string()),
+                ..SkillMetadata::default()
+            },
             error: None,
         }
     }

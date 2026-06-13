@@ -27,6 +27,7 @@ pub enum I18nKey {
     DetailVersion,
     DetailPath,
     DetailAgents,
+    DetailMetadata,
     DetailRisk,
     DetailFiles,
     DetailScripts,
@@ -90,7 +91,7 @@ pub enum I18nKey {
 }
 
 impl I18nKey {
-    const ALL: [Self; 83] = [
+    const ALL: [Self; 84] = [
         Self::SearchPlaceholder,
         Self::Focus,
         Self::Sort,
@@ -114,6 +115,7 @@ impl I18nKey {
         Self::DetailVersion,
         Self::DetailPath,
         Self::DetailAgents,
+        Self::DetailMetadata,
         Self::DetailRisk,
         Self::DetailFiles,
         Self::DetailScripts,
@@ -275,6 +277,7 @@ fn en_us(key: I18nKey) -> &'static str {
         I18nKey::DetailVersion => "Version: ",
         I18nKey::DetailPath => "Path: ",
         I18nKey::DetailAgents => "Agents: ",
+        I18nKey::DetailMetadata => "Metadata: ",
         I18nKey::DetailRisk => "Risk: ",
         I18nKey::DetailFiles => "Files: ",
         I18nKey::DetailScripts => "Scripts: ",
@@ -363,6 +366,7 @@ fn zh_cn(key: I18nKey) -> Option<&'static str> {
         I18nKey::DetailVersion => "版本: ",
         I18nKey::DetailPath => "路径: ",
         I18nKey::DetailAgents => "Agents: ",
+        I18nKey::DetailMetadata => "元数据: ",
         I18nKey::DetailRisk => "风险: ",
         I18nKey::DetailFiles => "文件: ",
         I18nKey::DetailScripts => "脚本: ",

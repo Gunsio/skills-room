@@ -209,6 +209,10 @@ fn render_details(
                 Span::styled(agents_summary(skill), theme.value()),
             ]),
             Line::from(vec![
+                Span::styled(app.text(I18nKey::DetailMetadata), theme.label()),
+                Span::styled(skill.metadata_label(), theme.value()),
+            ]),
+            Line::from(vec![
                 Span::styled(app.text(I18nKey::DetailRisk), theme.label()),
                 Span::styled(skill.risk.label(), theme.value()),
             ]),

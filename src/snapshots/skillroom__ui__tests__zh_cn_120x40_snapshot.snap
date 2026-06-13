@@ -1,6 +1,6 @@
 ---
 source: src/ui.rs
-assertion_line: 634
+assertion_line: 639
 expression: "render_app_snapshot(app, 120, 40)"
 ---
 ┌命 令 ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
@@ -14,6 +14,7 @@ expression: "render_app_snapshot(app, 120, 40)"
 │  taproom         local/git        Local    Ready    None     current ││版 本 : 1.8.0                                   │
 │  web-scraper     github           Global   Ready    Low      current ││路 径 : ~/.codex/skills/code-review             │
 │                                                                      ││Agents: 2/2 [agent-1, agent-2]                │
+│                                                                      ││元 数 据 : installed, source=curated             │
 │                                                                      ││风 险 : Medium                                  │
 │                                                                      ││文 件 : 12 files, 2 dirs, 1 refs, 0 assets, 360 │
 │                                                                      ││脚 本 : lint.sh, review.sh                      │
@@ -21,7 +22,6 @@ expression: "render_app_snapshot(app, 120, 40)"
 │                                                                      ││错 误 : none                                    │
 │                                                                      ││描 述 : Review pull requests with repository-loc│
 │                                                                      ││标 签 : code, review, quality                   │
-│                                                                      ││                                              │
 │                                                                      ││                                              │
 │                                                                      ││                                              │
 │                                                                      ││                                              │

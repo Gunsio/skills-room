@@ -4,11 +4,12 @@ use serde_json::Value;
 
 use crate::{
     skill::{
-        Agent, CommandPlan, RiskLevel, SkillRecord, SkillScope, SkillState, SkillStats, Source,
+        Agent, CommandPlan, RiskLevel, SkillMetadata, SkillRecord, SkillScope, SkillState,
+        SkillStats, Source,
     },
     source::{
         SourceAdapter, SourceAdapterResult, SourceCheck, SourceCheckKind, SourceDetailRequest,
-        SourceError, SourceErrorKind, SourceQuery,
+        SourceError, SourceErrorKind, SourceOrder, SourceQuery,
     },
 };
 
@@ -114,10 +115,12 @@ impl<C: HttpClient> SourceAdapter for AgentBuddyMarketplaceAdapter<C> {
         let items = extract_items(&value).ok_or_else(|| {
             SourceError::new(SourceErrorKind::Schema, "search response missing items")
         })?;
-        items
+        let mut records: Vec<SkillRecord> = items
             .iter()
             .map(|item| marketplace_skill_record(item, &self.config))
-            .collect()
+            .collect::<SourceAdapterResult<_>>()?;
+        sort_marketplace_records(&mut records, query.order_by);
+        Ok(records)
     }
 
     fn detail(&self, request: &SourceDetailRequest) -> SourceAdapterResult<SkillRecord> {
@@ -238,6 +241,7 @@ fn marketplace_skill_record(
     let star_count = unsigned_field(item, &["star_count", "stars"]);
     let installable = bool_field(item, &["installable"]).unwrap_or(true);
     let agents = agents_field(item);
+    let compatible_agents = agents.iter().map(|agent| agent.name.clone()).collect();
     let mut tags = strings_field(item, "tags");
     if let Some(stars) = star_count {
         tags.push(format!("stars:{stars}"));
@@ -265,8 +269,30 @@ fn marketplace_skill_record(
             remove: Vec::new(),
         },
         stats: SkillStats::default(),
+        metadata: SkillMetadata {
+            source_id: Some(id),
+            star_count,
+            installable,
+            installed: false,
+            compatible_agents,
+            source_status: Some(config.id.clone()),
+        },
         error: Some(format!("portal={}", config.portal_url)),
     })
+}
+
+fn sort_marketplace_records(records: &mut [SkillRecord], order: SourceOrder) {
+    match order {
+        SourceOrder::StarDesc => records.sort_by(|left, right| {
+            right
+                .metadata
+                .star_count
+                .unwrap_or_default()
+                .cmp(&left.metadata.star_count.unwrap_or_default())
+                .then_with(|| left.name.cmp(&right.name))
+        }),
+        SourceOrder::NameAsc => records.sort_by(|left, right| left.name.cmp(&right.name)),
+    }
 }
 
 fn extract_items(value: &Value) -> Option<&Vec<Value>> {
@@ -384,6 +410,28 @@ mod tests {
             adapter.client.urls()[0],
             "https://artifact-api.byted.org/api/marketplace/search?type=skill&scope=internal&q=code%20review&order_by=star_desc"
         );
+    }
+
+    #[test]
+    fn search_returns_head_skills_by_star_count() {
+        let client = MockHttpClient::new(vec![Ok(HttpResponse::json(
+            200,
+            r#"{"items":[{"id":"low","name":"low","star_count":3},{"id":"top","name":"top","star_count":99},{"id":"mid","name":"mid","star_count":10}]}"#,
+        ))]);
+        let adapter =
+            AgentBuddyMarketplaceAdapter::new(AgentBuddyMarketplaceConfig::default(), client);
+
+        let records = adapter.search(&SourceQuery::new("skill")).unwrap();
+
+        assert_eq!(
+            records
+                .iter()
+                .map(|record| record.name.as_str())
+                .collect::<Vec<_>>(),
+            vec!["top", "mid", "low"]
+        );
+        assert_eq!(records[0].metadata.star_count, Some(99));
+        assert!(records[0].metadata.installable);
     }
 
     #[test]

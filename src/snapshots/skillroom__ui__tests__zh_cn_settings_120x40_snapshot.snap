@@ -1,6 +1,6 @@
 ---
 source: src/ui.rs
-assertion_line: 653
+assertion_line: 657
 expression: "render_app_snapshot(app, 120, 40)"
 ---
 ┌命 令 ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
@@ -14,13 +14,13 @@ expression: "render_app_snapshot(app, 120, 40)"
 │  taproom       │配 置 : skillroom/config.toml                                                         │                │
 │  web-scraper   │                                                                                    │iew             │
 │                │> 主 题                             Tokyo Night  Enter 切 换 主 题                        │                │
-│                │  语 言                             中 文   Enter 切 换 语 言                               │                │
-│                │  缓 存  TTL                        1800s  Enter 切 换  TTL                             │, 0 assets, 360 │
-│                │  缓 存                             ready  Enter 清 理 缓 存 状 态                          │                │
+│                │  语 言                             中 文   Enter 切 换 语 言                               │ted             │
+│                │  缓 存  TTL                        1800s  Enter 切 换  TTL                             │                │
+│                │  缓 存                             ready  Enter 清 理 缓 存 状 态                          │, 0 assets, 360 │
 │                │  安 全                             已 锁 定   不 能 关 闭 安 全 底 线                           │                │
 │                │  来 源                             1 个 已 配 置   Enter 新 增 禁 用 来 源                     │                │
-│                │  来 源  skills.bytedance.net       启 用   Enter 启 用 /禁 用 来 源                          │h repository-loc│
-│                │  测 试  skills.bytedance.net       not-tested  Enter 本 地 测 试 来 源                     │                │
+│                │  来 源  skills.bytedance.net       启 用   Enter 启 用 /禁 用 来 源                          │                │
+│                │  测 试  skills.bytedance.net       not-tested  Enter 本 地 测 试 来 源                     │h repository-loc│
 │                │  保 存                             持 久 化  config.toml  Enter 写 入 配 置                 │                │
 │                │                                                                                    │                │
 │                │                                                                                    │                │

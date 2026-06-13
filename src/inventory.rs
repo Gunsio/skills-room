@@ -6,7 +6,10 @@ use std::{
 use crate::{
     parser::{ParseError, ParsedSkillMarkdown},
     scan::{DirectoryScan, ScanError},
-    skill::{CommandPlan, RiskLevel, SkillRecord, SkillScope, SkillState, SkillStats, Source},
+    skill::{
+        CommandPlan, RiskLevel, SkillMetadata, SkillRecord, SkillScope, SkillState, SkillStats,
+        Source,
+    },
 };
 
 #[derive(Debug)]
@@ -113,6 +116,11 @@ fn local_only_record(path: &Path) -> SkillRecord {
         tags: Vec::new(),
         command_plan: CommandPlan::default(),
         stats: SkillStats::default(),
+        metadata: SkillMetadata {
+            installed: true,
+            source_status: Some("local".to_string()),
+            ..SkillMetadata::default()
+        },
         error: None,
     }
 }
@@ -212,6 +220,11 @@ mod tests {
             tags: Vec::new(),
             command_plan: CommandPlan::default(),
             stats: SkillStats::default(),
+            metadata: SkillMetadata {
+                installed: true,
+                source_status: Some("npx".to_string()),
+                ..SkillMetadata::default()
+            },
             error: None,
         }
     }

@@ -1,6 +1,6 @@
 ---
 source: src/ui.rs
-assertion_line: 617
+assertion_line: 622
 expression: "render_settings_snapshot(120, 40)"
 ---
 ┌Command───────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
@@ -14,13 +14,13 @@ expression: "render_settings_snapshot(120, 40)"
 │  taproom       │Config: skillroom/config.toml                                                       │                │
 │  web-scraper   │                                                                                    │iew             │
 │                │> Theme                         Tokyo Night  Enter cycles theme                     │                │
-│                │  Language                      English  Enter cycles language                      │                │
-│                │  Cache TTL                     1800s  Enter cycles TTL                             │s, 0 assets, 360│
-│                │  Cache                         ready  Enter clears cache state                     │                │
+│                │  Language                      English  Enter cycles language                      │rated           │
+│                │  Cache TTL                     1800s  Enter cycles TTL                             │                │
+│                │  Cache                         ready  Enter clears cache state                     │s, 0 assets, 360│
 │                │  Safety                        locked  Cannot disable guard rails                  │                │
 │                │  Sources                       1 configured  Enter adds disabled source            │                │
-│                │  Source skills.bytedance.net   enabled  Enter toggles source                       │sts with reposit│
-│                │  Test skills.bytedance.net     not-tested  Enter dry-runs source                   │                │
+│                │  Source skills.bytedance.net   enabled  Enter toggles source                       │                │
+│                │  Test skills.bytedance.net     not-tested  Enter dry-runs source                   │sts with reposit│
 │                │  Save                          persist config.toml  Enter writes config            │                │
 │                │                                                                                    │                │
 │                │                                                                                    │                │
