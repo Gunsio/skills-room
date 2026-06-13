@@ -37,10 +37,17 @@ pub fn render(app: &App, frame: &mut Frame<'_>) {
 fn render_search(app: &App, frame: &mut Frame<'_>, area: ratatui::layout::Rect) {
     let line = Line::from(vec![
         " Skillroom ".bold().cyan(),
-        format!("{} skills ", app.skills().len()).dim(),
+        format!(
+            "{} / {} skills ",
+            app.visible_skills().len(),
+            app.skills().len()
+        )
+        .dim(),
         search_prompt(app),
         " focus=".dim(),
         app.focus().label().cyan(),
+        " sort=".dim(),
+        sort_label(app),
     ]);
 
     frame.render_widget(
@@ -59,6 +66,21 @@ fn search_prompt(app: &App) -> Span<'static> {
     }
 }
 
+fn sort_label(app: &App) -> Span<'static> {
+    let direction = if app.sort_ascending() { "asc" } else { "desc" };
+    format!("{} {direction}", app.sort_column().label()).cyan()
+}
+
+fn has_active_filters(app: &App) -> bool {
+    let filters = app.filters();
+    !app.search_query().is_empty()
+        || filters.source.is_some()
+        || filters.scope.is_some()
+        || filters.state.is_some()
+        || filters.risk.is_some()
+        || filters.update.is_some()
+}
+
 fn render_table(app: &App, frame: &mut Frame<'_>, area: ratatui::layout::Rect) {
     let header = Row::new([
         Cell::from("Name".bold()),
@@ -69,28 +91,32 @@ fn render_table(app: &App, frame: &mut Frame<'_>, area: ratatui::layout::Rect) {
         Cell::from("Update".bold()),
     ]);
 
-    let rows = app.skills().iter().enumerate().map(|(index, skill)| {
-        let marker = if index == app.selected_index() {
-            "> "
-        } else {
-            "  "
-        };
-        let style = if index == app.selected_index() {
-            Style::new().reversed()
-        } else {
-            Style::new()
-        };
+    let rows = app
+        .visible_skills()
+        .into_iter()
+        .enumerate()
+        .map(|(index, (_, skill))| {
+            let marker = if index == app.selected_index() {
+                "> "
+            } else {
+                "  "
+            };
+            let style = if index == app.selected_index() {
+                Style::new().reversed()
+            } else {
+                Style::new()
+            };
 
-        Row::new([
-            Cell::from(format!("{marker}{}", skill.name)),
-            Cell::from(skill.source),
-            Cell::from(skill.scope.label()),
-            Cell::from(state_line(skill.state)),
-            Cell::from(risk_line(skill.risk)),
-            Cell::from(skill.update),
-        ])
-        .style(style)
-    });
+            Row::new([
+                Cell::from(format!("{marker}{}", skill.name)),
+                Cell::from(skill.source),
+                Cell::from(skill.scope.label()),
+                Cell::from(state_line(skill.state)),
+                Cell::from(risk_line(skill.risk)),
+                Cell::from(skill.update),
+            ])
+            .style(style)
+        });
 
     let table = Table::new(
         rows,
@@ -133,6 +159,7 @@ fn render_details(app: &App, frame: &mut Frame<'_>, area: ratatui::layout::Rect)
 
 fn render_stats(app: &App, frame: &mut Frame<'_>, area: ratatui::layout::Rect) {
     let total = app.skills().len();
+    let visible = app.visible_skills().len();
     let local = app
         .skills()
         .iter()
@@ -152,7 +179,9 @@ fn render_stats(app: &App, frame: &mut Frame<'_>, area: ratatui::layout::Rect) {
     let lines = vec![
         Line::from(vec![
             "Filters ".dim(),
-            if app.focus() == FocusArea::Filters {
+            if has_active_filters(app) {
+                "active".yellow()
+            } else if app.focus() == FocusArea::Filters {
                 "focused".cyan()
             } else {
                 "ready".dim()
@@ -166,6 +195,7 @@ fn render_stats(app: &App, frame: &mut Frame<'_>, area: ratatui::layout::Rect) {
                 "placeholder".dim()
             },
         ]),
+        Line::from(vec!["Visible ".dim(), visible.to_string().bold()]),
         Line::from(vec!["Total ".dim(), total.to_string().bold()]),
         Line::from(vec!["Local ".dim(), local.to_string().cyan()]),
         Line::from(vec!["Updates ".dim(), updates.to_string().yellow()]),
@@ -221,6 +251,7 @@ fn render_help_overlay(frame: &mut Frame<'_>, area: ratatui::layout::Rect) {
         Line::from("PageUp/PageDown: page selection"),
         Line::from("g/G: jump to top/bottom"),
         Line::from("Tab / Shift+Tab: cycle focus"),
+        Line::from("s/S: cycle sort column / reverse sort"),
         Line::from("?: close help"),
         Line::from("q: quit"),
     ];

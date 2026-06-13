@@ -4,7 +4,7 @@ use color_eyre::eyre::Result;
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use ratatui::{DefaultTerminal, Frame};
 
-use crate::skill::{SkillRecord, fixture_skills};
+use crate::skill::{RiskLevel, SkillRecord, SkillScope, SkillState, fixture_skills};
 
 #[derive(Debug)]
 pub struct App {
@@ -14,6 +14,9 @@ pub struct App {
     focus: FocusArea,
     input_mode: InputMode,
     search_query: String,
+    filters: FilterState,
+    sort_column: SortColumn,
+    sort_ascending: bool,
     show_help: bool,
     output: Vec<String>,
 }
@@ -22,6 +25,55 @@ pub struct App {
 pub enum InputMode {
     Normal,
     Search,
+}
+
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub enum SortColumn {
+    Name,
+    Source,
+    Scope,
+    State,
+    Risk,
+    Update,
+}
+
+impl SortColumn {
+    const ORDER: [Self; 6] = [
+        Self::Name,
+        Self::Source,
+        Self::Scope,
+        Self::State,
+        Self::Risk,
+        Self::Update,
+    ];
+
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Name => "Name",
+            Self::Source => "Source",
+            Self::Scope => "Scope",
+            Self::State => "State",
+            Self::Risk => "Risk",
+            Self::Update => "Update",
+        }
+    }
+
+    pub fn next(self) -> Self {
+        let index = Self::ORDER
+            .iter()
+            .position(|column| *column == self)
+            .unwrap_or(0);
+        Self::ORDER[(index + 1) % Self::ORDER.len()]
+    }
+}
+
+#[derive(Debug, Clone, Default, Eq, PartialEq)]
+pub struct FilterState {
+    pub source: Option<String>,
+    pub scope: Option<SkillScope>,
+    pub state: Option<SkillState>,
+    pub risk: Option<RiskLevel>,
+    pub update: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
@@ -78,6 +130,9 @@ impl Default for App {
             focus: FocusArea::Table,
             input_mode: InputMode::Normal,
             search_query: String::new(),
+            filters: FilterState::default(),
+            sort_column: SortColumn::Name,
+            sort_ascending: true,
             show_help: false,
             output: vec![
                 "[system] Skillroom daemon started.".to_string(),
@@ -142,6 +197,14 @@ impl App {
             (KeyCode::Tab, _) => {
                 self.focus = self.focus.next();
             }
+            (KeyCode::Char('s'), _) => {
+                self.sort_column = self.sort_column.next();
+                self.clamp_selection();
+            }
+            (KeyCode::Char('S'), _) => {
+                self.sort_ascending = !self.sort_ascending;
+                self.clamp_selection();
+            }
             (KeyCode::Up | KeyCode::Char('k'), _) => self.select_previous(),
             (KeyCode::Down | KeyCode::Char('j'), _) => self.select_next(),
             (KeyCode::PageUp, _) => self.select_page_up(),
@@ -160,6 +223,7 @@ impl App {
                     self.focus = FocusArea::Table;
                 } else {
                     self.search_query.clear();
+                    self.clamp_selection();
                 }
             }
             KeyCode::Enter => {
@@ -168,12 +232,14 @@ impl App {
             }
             KeyCode::Backspace => {
                 self.search_query.pop();
+                self.clamp_selection();
             }
             KeyCode::Char(character)
                 if !key.modifiers.contains(KeyModifiers::CONTROL)
                     && !key.modifiers.contains(KeyModifiers::ALT) =>
             {
                 self.search_query.push(character);
+                self.clamp_selection();
             }
             _ => {}
         }
@@ -190,7 +256,7 @@ impl App {
     }
 
     fn select_next(&mut self) {
-        let last = self.skills.len().saturating_sub(1);
+        let last = self.visible_skill_count().saturating_sub(1);
         self.selected = self.selected.saturating_add(1).min(last);
     }
 
@@ -199,7 +265,7 @@ impl App {
     }
 
     fn select_page_down(&mut self) {
-        let last = self.skills.len().saturating_sub(1);
+        let last = self.visible_skill_count().saturating_sub(1);
         self.selected = self.selected.saturating_add(Self::PAGE_SIZE).min(last);
     }
 
@@ -208,7 +274,17 @@ impl App {
     }
 
     fn select_last(&mut self) {
-        self.selected = self.skills.len().saturating_sub(1);
+        self.selected = self.visible_skill_count().saturating_sub(1);
+    }
+
+    fn clamp_selection(&mut self) {
+        self.selected = self
+            .selected
+            .min(self.visible_skill_count().saturating_sub(1));
+    }
+
+    fn visible_skill_count(&self) -> usize {
+        self.visible_skills().len()
     }
 
     const PAGE_SIZE: usize = 5;
@@ -222,7 +298,9 @@ impl App {
     }
 
     pub(crate) fn selected_skill(&self) -> Option<&SkillRecord> {
-        self.skills.get(self.selected)
+        self.visible_skills()
+            .get(self.selected)
+            .map(|(_, skill)| *skill)
     }
 
     pub(crate) fn focus(&self) -> FocusArea {
@@ -237,6 +315,18 @@ impl App {
         &self.search_query
     }
 
+    pub(crate) fn filters(&self) -> &FilterState {
+        &self.filters
+    }
+
+    pub(crate) fn sort_column(&self) -> SortColumn {
+        self.sort_column
+    }
+
+    pub(crate) fn sort_ascending(&self) -> bool {
+        self.sort_ascending
+    }
+
     pub(crate) fn show_help(&self) -> bool {
         self.show_help
     }
@@ -244,6 +334,83 @@ impl App {
     pub(crate) fn output(&self) -> &[String] {
         &self.output
     }
+
+    pub(crate) fn visible_skills(&self) -> Vec<(usize, &SkillRecord)> {
+        let mut skills: Vec<(usize, &SkillRecord)> = self
+            .skills
+            .iter()
+            .enumerate()
+            .filter(|(_, skill)| self.matches_filters(skill))
+            .collect();
+
+        skills.sort_by(|(_, left), (_, right)| self.compare_skills(left, right));
+        if !self.sort_ascending {
+            skills.reverse();
+        }
+
+        skills
+    }
+
+    fn matches_filters(&self, skill: &SkillRecord) -> bool {
+        let matches_query = self.search_query.is_empty()
+            || contains_case_insensitive(skill.name, &self.search_query)
+            || contains_case_insensitive(skill.source, &self.search_query)
+            || contains_case_insensitive(skill.description, &self.search_query)
+            || skill
+                .tags
+                .iter()
+                .any(|tag| contains_case_insensitive(tag, &self.search_query));
+
+        matches_query
+            && self
+                .filters
+                .source
+                .as_ref()
+                .is_none_or(|source| skill.source == source)
+            && self.filters.scope.is_none_or(|scope| skill.scope == scope)
+            && self.filters.state.is_none_or(|state| skill.state == state)
+            && self.filters.risk.is_none_or(|risk| skill.risk == risk)
+            && self
+                .filters
+                .update
+                .as_ref()
+                .is_none_or(|update| skill.update == update)
+    }
+
+    fn compare_skills(&self, left: &SkillRecord, right: &SkillRecord) -> std::cmp::Ordering {
+        match self.sort_column {
+            SortColumn::Name => left.name.cmp(right.name),
+            SortColumn::Source => left
+                .source
+                .cmp(right.source)
+                .then(left.name.cmp(right.name)),
+            SortColumn::Scope => left
+                .scope
+                .label()
+                .cmp(right.scope.label())
+                .then(left.name.cmp(right.name)),
+            SortColumn::State => left
+                .state
+                .label()
+                .cmp(right.state.label())
+                .then(left.name.cmp(right.name)),
+            SortColumn::Risk => left
+                .risk
+                .label()
+                .cmp(right.risk.label())
+                .then(left.name.cmp(right.name)),
+            SortColumn::Update => left
+                .update
+                .cmp(right.update)
+                .then(left.name.cmp(right.name)),
+        }
+    }
+}
+
+fn contains_case_insensitive(haystack: &str, needle: &str) -> bool {
+    haystack
+        .to_ascii_lowercase()
+        .contains(&needle.to_ascii_lowercase())
 }
 
 #[cfg(test)]
@@ -285,13 +452,13 @@ mod tests {
         assert_eq!(app.selected_index(), 1);
 
         app.handle_key(KeyEvent::from(KeyCode::PageDown));
-        assert_eq!(app.selected_index(), app.skills().len() - 1);
+        assert_eq!(app.selected_index(), app.visible_skills().len() - 1);
 
         app.handle_key(KeyEvent::from(KeyCode::PageUp));
         assert_eq!(app.selected_index(), 0);
 
         app.handle_key(KeyEvent::from(KeyCode::Char('G')));
-        assert_eq!(app.selected_index(), app.skills().len() - 1);
+        assert_eq!(app.selected_index(), app.visible_skills().len() - 1);
 
         app.handle_key(KeyEvent::from(KeyCode::Char('g')));
         assert_eq!(app.selected_index(), 0);
@@ -341,5 +508,55 @@ mod tests {
 
         assert_eq!(app.search_query(), "q");
         assert!(!app.should_quit);
+    }
+
+    #[test]
+    fn search_query_filters_visible_skills() {
+        let mut app = App::default();
+
+        app.handle_key(KeyEvent::from(KeyCode::Char('/')));
+        for character in "metrics".chars() {
+            app.handle_key(KeyEvent::from(KeyCode::Char(character)));
+        }
+
+        let visible = app.visible_skills();
+        assert_eq!(visible.len(), 1);
+        assert_eq!(visible[0].1.name, "data-analysis");
+    }
+
+    #[test]
+    fn sorting_cycles_across_fixture_columns() {
+        let mut app = App::default();
+
+        assert_eq!(app.sort_column(), SortColumn::Name);
+        app.handle_key(KeyEvent::from(KeyCode::Char('s')));
+        assert_eq!(app.sort_column(), SortColumn::Source);
+        app.handle_key(KeyEvent::from(KeyCode::Char('s')));
+        assert_eq!(app.sort_column(), SortColumn::Scope);
+        app.handle_key(KeyEvent::from(KeyCode::Char('s')));
+        assert_eq!(app.sort_column(), SortColumn::State);
+        app.handle_key(KeyEvent::from(KeyCode::Char('s')));
+        assert_eq!(app.sort_column(), SortColumn::Risk);
+        app.handle_key(KeyEvent::from(KeyCode::Char('s')));
+        assert_eq!(app.sort_column(), SortColumn::Update);
+
+        assert!(app.sort_ascending());
+        app.handle_key(KeyEvent::from(KeyCode::Char('S')));
+        assert!(!app.sort_ascending());
+    }
+
+    #[test]
+    fn fixture_filters_cover_source_scope_state_risk_and_update() {
+        let mut app = App::default();
+
+        app.filters.source = Some("skills.bytedance.net".to_string());
+        app.filters.scope = Some(SkillScope::Global);
+        app.filters.state = Some(SkillState::Active);
+        app.filters.risk = Some(RiskLevel::Low);
+        app.filters.update = Some("current".to_string());
+
+        let visible = app.visible_skills();
+        assert_eq!(visible.len(), 1);
+        assert_eq!(visible[0].1.name, "data-analysis");
     }
 }
