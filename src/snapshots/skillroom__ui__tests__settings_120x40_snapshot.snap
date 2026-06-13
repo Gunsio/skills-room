@@ -13,15 +13,15 @@ expression: "render_settings_snapshot(120, 40)"
 │  legacy-deploy │Settings  Esc cancels                                                               │                │
 │  taproom       │Config: skillroom/config.toml                                                       │                │
 │  web-scraper   │                                                                                    │iew             │
-│                │> Theme       Tokyo Night  Enter cycles theme                                       │                │
-│                │  Language    English  Enter cycles language                                        │                │
-│                │  Cache TTL   1800s  Enter cycles TTL                                               │s, 0 assets, 360│
-│                │  Cache       ready  Enter clears cache state                                       │                │
-│                │  Safety      delete confirmation + HOME guard locked  Cannot disable guard rails   │                │
-│                │  Sources     1 configured  Enter manages source                                    │                │
-│                │  Save        persist config.toml  Enter writes config                              │sts with reposit│
-│                │                                                                                    │                │
-│                │                                                                                    │                │
+│                │> Theme                         Tokyo Night  Enter cycles theme                     │                │
+│                │  Language                      English  Enter cycles language                      │                │
+│                │  Cache TTL                     1800s  Enter cycles TTL                             │s, 0 assets, 360│
+│                │  Cache                         ready  Enter clears cache state                     │                │
+│                │  Safety                        locked  Cannot disable guard rails                  │                │
+│                │  Sources                       1 configured  Enter adds disabled source            │                │
+│                │  Source skills.bytedance.net   enabled  Enter toggles source                       │sts with reposit│
+│                │  Test skills.bytedance.net     not-tested  Enter dry-runs source                   │                │
+│                │  Save                          persist config.toml  Enter writes config            │                │
 │                │                                                                                    │                │
 │                │                                                                                    │                │
 │                │                                                                                    │                │

@@ -5,7 +5,7 @@ use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifier
 use ratatui::{DefaultTerminal, Frame};
 
 use crate::{
-    config::{AppConfig, LoadedConfig},
+    config::{AppConfig, LoadedConfig, SourceSettings},
     i18n::{I18nCatalog, I18nKey},
     skill::{RiskLevel, SkillRecord, SkillScope, SkillState, Source, fixture_skills},
     theme::{ThemePalette, ThemeRegistry},
@@ -357,22 +357,26 @@ impl App {
     }
 
     fn activate_setting(&mut self) {
-        match self.settings.selected {
-            0 => {
+        let Some(action) = self.settings_actions().get(self.settings.selected).copied() else {
+            return;
+        };
+
+        match action {
+            SettingsAction::Theme => {
                 self.settings.draft.theme = self.settings.draft.theme.next();
                 self.push_output(&format!(
                     "[settings] Theme -> {}.",
                     self.settings.draft.theme.label()
                 ));
             }
-            1 => {
+            SettingsAction::Language => {
                 self.settings.draft.language = self.settings.draft.language.next();
                 self.push_output(&format!(
                     "[settings] Language -> {}.",
                     self.settings.draft.language.label()
                 ));
             }
-            2 => {
+            SettingsAction::CacheTtl => {
                 self.settings.draft.cache.ttl_seconds =
                     next_cache_ttl(self.settings.draft.cache.ttl_seconds);
                 self.push_output(&format!(
@@ -380,24 +384,39 @@ impl App {
                     self.settings.draft.cache.ttl_seconds
                 ));
             }
-            3 => {
+            SettingsAction::CacheClear => {
                 self.settings.draft.cache.last_status = "clear-requested".to_string();
                 self.push_output("[settings] Cache clear requested.");
             }
-            4 => {
+            SettingsAction::Safety => {
                 self.settings.draft.safety.delete_confirmation = true;
                 self.settings.draft.safety.home_delete_guard = true;
                 self.push_output("[settings] Safety locks remain enabled.");
             }
-            6 => self.save_settings(),
-            _ => {
-                let label = self
-                    .settings_rows()
-                    .get(self.settings.selected)
-                    .map(|row| row.label.clone())
-                    .unwrap_or_else(|| "unknown".to_string());
-                self.push_output(&format!("[settings] Selected {label}."));
+            SettingsAction::SourceAdd => {
+                let index = self.settings.draft.sources.len() + 1;
+                let source = SourceSettings::custom(index);
+                self.push_output(&format!("[settings] Added source {}.", source.name));
+                self.settings.draft.sources.push(source);
             }
+            SettingsAction::SourceToggle(index) => {
+                if let Some(source) = self.settings.draft.sources.get_mut(index) {
+                    source.enabled = !source.enabled;
+                    let name = source.name.clone();
+                    let enabled = source.enabled;
+                    self.push_output(&format!("[settings] Source {name} enabled={enabled}."));
+                }
+            }
+            SettingsAction::SourceTest(index) => {
+                if let Some(source) = self.settings.draft.sources.get_mut(index) {
+                    source.last_status = "configured-only".to_string();
+                    let name = source.name.clone();
+                    self.push_output(&format!(
+                        "[settings] Source {name} dry-run ok; no remote request."
+                    ));
+                }
+            }
+            SettingsAction::Save => self.save_settings(),
         }
     }
 
@@ -534,44 +553,88 @@ impl App {
         self.settings.selected
     }
 
+    fn settings_actions(&self) -> Vec<SettingsAction> {
+        let mut actions = vec![
+            SettingsAction::Theme,
+            SettingsAction::Language,
+            SettingsAction::CacheTtl,
+            SettingsAction::CacheClear,
+            SettingsAction::Safety,
+            SettingsAction::SourceAdd,
+        ];
+        for index in 0..self.settings.draft.sources.len() {
+            actions.push(SettingsAction::SourceToggle(index));
+            actions.push(SettingsAction::SourceTest(index));
+        }
+        actions.push(SettingsAction::Save);
+        actions
+    }
+
     pub(crate) fn settings_rows(&self) -> Vec<SettingsRow> {
-        vec![
-            SettingsRow::new(
+        self.settings_actions()
+            .into_iter()
+            .map(|action| self.settings_row(action))
+            .collect()
+    }
+
+    fn settings_row(&self, action: SettingsAction) -> SettingsRow {
+        match action {
+            SettingsAction::Theme => SettingsRow::new(
                 self.text(I18nKey::SettingsTheme),
                 self.settings.draft.theme.label(),
                 self.text(I18nKey::HintTheme),
             ),
-            SettingsRow::new(
+            SettingsAction::Language => SettingsRow::new(
                 self.text(I18nKey::SettingsLanguage),
                 self.settings.draft.language.label(),
                 self.text(I18nKey::HintLanguage),
             ),
-            SettingsRow::new(
+            SettingsAction::CacheTtl => SettingsRow::new(
                 self.text(I18nKey::SettingsCacheTtl),
                 format!("{}s", self.settings.draft.cache.ttl_seconds),
                 self.text(I18nKey::HintCacheTtl),
             ),
-            SettingsRow::new(
+            SettingsAction::CacheClear => SettingsRow::new(
                 self.text(I18nKey::SettingsCache),
                 self.settings.draft.cache.last_status.clone(),
                 self.text(I18nKey::HintCache),
             ),
-            SettingsRow::new(
+            SettingsAction::Safety => SettingsRow::new(
                 self.text(I18nKey::SettingsSafety),
                 safety_summary(&self.settings.draft),
                 self.text(I18nKey::HintSafety),
             ),
-            SettingsRow::new(
+            SettingsAction::SourceAdd => SettingsRow::new(
                 self.text(I18nKey::SettingsSources),
                 format!("{} configured", self.settings.draft.sources.len()),
-                self.text(I18nKey::HintSources),
+                "Enter adds disabled source",
             ),
-            SettingsRow::new(
+            SettingsAction::SourceToggle(index) => {
+                let source = &self.settings.draft.sources[index];
+                SettingsRow::new(
+                    format!("Source {}", source.name),
+                    if source.enabled {
+                        "enabled"
+                    } else {
+                        "disabled"
+                    },
+                    "Enter toggles source",
+                )
+            }
+            SettingsAction::SourceTest(index) => {
+                let source = &self.settings.draft.sources[index];
+                SettingsRow::new(
+                    format!("Test {}", source.name),
+                    source.last_status.clone(),
+                    "Enter dry-runs source",
+                )
+            }
+            SettingsAction::Save => SettingsRow::new(
                 self.text(I18nKey::SettingsSave),
                 "persist config.toml",
                 self.text(I18nKey::HintSave),
             ),
-        ]
+        }
     }
 
     pub(crate) fn visible_skills(&self) -> Vec<(usize, &SkillRecord)> {
@@ -687,7 +750,7 @@ fn next_cache_ttl(current: u64) -> u64 {
 
 fn safety_summary(config: &AppConfig) -> &'static str {
     if config.safety.delete_confirmation && config.safety.home_delete_guard {
-        "delete confirmation + HOME guard locked"
+        "locked"
     } else {
         "restored on save"
     }
@@ -715,6 +778,19 @@ struct SettingsState {
     open: bool,
     selected: usize,
     draft: AppConfig,
+}
+
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+enum SettingsAction {
+    Theme,
+    Language,
+    CacheTtl,
+    CacheClear,
+    Safety,
+    SourceAdd,
+    SourceToggle(usize),
+    SourceTest(usize),
+    Save,
 }
 
 impl SettingsState {
@@ -982,11 +1058,9 @@ mod tests {
 
         app.handle_key(KeyEvent::from(KeyCode::Char(',')));
         app.handle_key(KeyEvent::from(KeyCode::Enter));
-        app.handle_key(KeyEvent::from(KeyCode::Down));
+        move_to_setting(&mut app, "Language");
         app.handle_key(KeyEvent::from(KeyCode::Enter));
-        for _ in 0..5 {
-            app.handle_key(KeyEvent::from(KeyCode::Down));
-        }
+        move_to_setting(&mut app, "Save");
         app.handle_key(KeyEvent::from(KeyCode::Enter));
 
         assert!(!app.settings_open());
@@ -1034,14 +1108,11 @@ mod tests {
         );
 
         app.handle_key(KeyEvent::from(KeyCode::Char(',')));
-        app.handle_key(KeyEvent::from(KeyCode::Down));
-        app.handle_key(KeyEvent::from(KeyCode::Down));
+        move_to_setting(&mut app, "Cache TTL");
         app.handle_key(KeyEvent::from(KeyCode::Enter));
-        app.handle_key(KeyEvent::from(KeyCode::Down));
+        move_to_setting(&mut app, "Cache");
         app.handle_key(KeyEvent::from(KeyCode::Enter));
-        for _ in 0..3 {
-            app.handle_key(KeyEvent::from(KeyCode::Down));
-        }
+        move_to_setting(&mut app, "Save");
         app.handle_key(KeyEvent::from(KeyCode::Enter));
 
         let loaded = load_or_default(path);
@@ -1072,18 +1143,53 @@ mod tests {
         assert!(app.config.safety.home_delete_guard);
 
         app.handle_key(KeyEvent::from(KeyCode::Char(',')));
-        for _ in 0..4 {
-            app.handle_key(KeyEvent::from(KeyCode::Down));
-        }
+        move_to_setting(&mut app, "Safety");
         app.handle_key(KeyEvent::from(KeyCode::Enter));
-        for _ in 0..2 {
-            app.handle_key(KeyEvent::from(KeyCode::Down));
-        }
+        move_to_setting(&mut app, "Save");
         app.handle_key(KeyEvent::from(KeyCode::Enter));
 
         let loaded = load_or_default(path);
         assert!(loaded.config.safety.delete_confirmation);
         assert!(loaded.config.safety.home_delete_guard);
+    }
+
+    #[test]
+    fn settings_sources_add_toggle_test_and_persist_without_remote_request() {
+        let temp = tempdir().unwrap();
+        let path = temp.path().join("config.toml");
+        let mut app = App::from_skills_with_config(
+            fixture_skills(),
+            LoadedConfig {
+                path: path.clone(),
+                config: AppConfig::default(),
+                warnings: Vec::new(),
+            },
+        );
+
+        app.handle_key(KeyEvent::from(KeyCode::Char(',')));
+        move_to_setting(&mut app, "Sources");
+        app.handle_key(KeyEvent::from(KeyCode::Enter));
+        move_to_setting(&mut app, "Source custom-2");
+        app.handle_key(KeyEvent::from(KeyCode::Enter));
+        move_to_setting(&mut app, "Test custom-2");
+        app.handle_key(KeyEvent::from(KeyCode::Enter));
+        move_to_setting(&mut app, "Save");
+        app.handle_key(KeyEvent::from(KeyCode::Enter));
+
+        let loaded = load_or_default(path);
+        let source = loaded
+            .config
+            .sources
+            .iter()
+            .find(|source| source.name == "custom-2")
+            .unwrap();
+        assert!(source.enabled);
+        assert_eq!(source.last_status, "configured-only");
+        assert!(
+            app.output()
+                .iter()
+                .any(|line| line.contains("no remote request"))
+        );
     }
 
     #[test]
@@ -1101,5 +1207,20 @@ mod tests {
         );
 
         assert_eq!(app.theme().name, ThemeName::GruvboxDark);
+    }
+
+    fn move_to_setting(app: &mut App, label: &str) {
+        let target = app
+            .settings_rows()
+            .iter()
+            .position(|row| row.label == label)
+            .unwrap_or_else(|| panic!("missing settings row {label}"));
+
+        while app.settings_selected() < target {
+            app.handle_key(KeyEvent::from(KeyCode::Down));
+        }
+        while app.settings_selected() > target {
+            app.handle_key(KeyEvent::from(KeyCode::Up));
+        }
     }
 }

@@ -471,7 +471,7 @@ fn render_settings(
         };
         let line = Line::from(vec![
             Span::raw(marker),
-            Span::styled(format!("{:<12}", row.label), theme.label()),
+            Span::styled(format!("{:<30}", row.label), theme.label()),
             Span::styled(row.value, theme.value()),
             Span::raw("  "),
             Span::styled(row.hint, theme.muted()),
