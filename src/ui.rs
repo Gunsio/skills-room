@@ -32,6 +32,10 @@ pub fn render(app: &App, frame: &mut Frame<'_>) {
     if app.show_help() {
         render_help_overlay(frame, area);
     }
+
+    if app.settings_open() {
+        render_settings(app, frame, area);
+    }
 }
 
 fn render_search(app: &App, frame: &mut Frame<'_>, area: ratatui::layout::Rect) {
@@ -308,6 +312,8 @@ fn render_help(frame: &mut Frame<'_>, area: ratatui::layout::Rect) {
         "search ".dim(),
         " ? ".bold().cyan(),
         "help ".dim(),
+        " , ".bold().cyan(),
+        "settings ".dim(),
         " Tab ".bold().cyan(),
         "focus ".dim(),
         " Enter ".bold().cyan(),
@@ -315,6 +321,48 @@ fn render_help(frame: &mut Frame<'_>, area: ratatui::layout::Rect) {
     ]);
 
     frame.render_widget(Paragraph::new(help).block(Block::bordered()), area);
+}
+
+fn render_settings(app: &App, frame: &mut Frame<'_>, area: ratatui::layout::Rect) {
+    let popup = centered_rect(area, 72, 70);
+    let mut lines = vec![
+        Line::from(vec![
+            "Settings".bold().cyan(),
+            "  ".into(),
+            "Esc cancels".dim(),
+        ]),
+        Line::from(vec![
+            "Config: ".dim(),
+            app.config_path().display().to_string().into(),
+        ]),
+        Line::from(""),
+    ];
+
+    for (index, row) in app.settings_rows().into_iter().enumerate() {
+        let marker = if index == app.settings_selected() {
+            "> "
+        } else {
+            "  "
+        };
+        let line = Line::from(vec![
+            marker.into(),
+            format!("{:<12}", row.label).bold(),
+            row.value.into(),
+            "  ".into(),
+            row.hint.dim(),
+        ]);
+        if index == app.settings_selected() {
+            lines.push(line.style(Style::new().reversed()));
+        } else {
+            lines.push(line);
+        }
+    }
+
+    frame.render_widget(ratatui::widgets::Clear, popup);
+    frame.render_widget(
+        Paragraph::new(lines).block(focused_block("Settings", true)),
+        popup,
+    );
 }
 
 fn render_help_overlay(frame: &mut Frame<'_>, area: ratatui::layout::Rect) {
@@ -416,10 +464,25 @@ mod tests {
         insta::assert_snapshot!(render_snapshot(160, 50));
     }
 
+    #[test]
+    fn settings_120x40_snapshot() {
+        insta::assert_snapshot!(render_settings_snapshot(120, 40));
+    }
+
     fn render_snapshot(width: u16, height: u16) -> String {
         let backend = TestBackend::new(width, height);
         let mut terminal = Terminal::new(backend).unwrap();
         let app = App::default();
+
+        terminal.draw(|frame| render(&app, frame)).unwrap();
+        buffer_to_string(terminal.backend().buffer())
+    }
+
+    fn render_settings_snapshot(width: u16, height: u16) -> String {
+        let backend = TestBackend::new(width, height);
+        let mut terminal = Terminal::new(backend).unwrap();
+        let mut app = App::default();
+        app.open_settings();
 
         terminal.draw(|frame| render(&app, frame)).unwrap();
         buffer_to_string(terminal.backend().buffer())

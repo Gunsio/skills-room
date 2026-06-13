@@ -1,10 +1,13 @@
-use std::time::Duration;
+use std::{path::PathBuf, time::Duration};
 
 use color_eyre::eyre::Result;
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use ratatui::{DefaultTerminal, Frame};
 
-use crate::skill::{RiskLevel, SkillRecord, SkillScope, SkillState, Source, fixture_skills};
+use crate::{
+    config::{AppConfig, LoadedConfig},
+    skill::{RiskLevel, SkillRecord, SkillScope, SkillState, Source, fixture_skills},
+};
 
 #[derive(Debug)]
 pub struct App {
@@ -21,6 +24,9 @@ pub struct App {
     output: Vec<String>,
     stream_tick: usize,
     stream_cursor: usize,
+    config_path: PathBuf,
+    config: AppConfig,
+    settings: SettingsState,
 }
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
@@ -131,15 +137,29 @@ impl Default for App {
 
 impl App {
     pub fn load_local_or_fixture() -> Self {
+        let loaded_config = crate::config::load_from_env();
         let skills = crate::local_inventory::load_local_inventory_from_env();
-        if skills.is_empty() {
-            Self::default()
+        let skills = if skills.is_empty() {
+            fixture_skills()
         } else {
-            Self::from_skills(skills)
-        }
+            skills
+        };
+
+        Self::from_skills_with_config(skills, loaded_config)
     }
 
     pub fn from_skills(skills: Vec<SkillRecord>) -> Self {
+        Self::from_skills_with_config(
+            skills,
+            LoadedConfig {
+                path: PathBuf::from("skillroom/config.toml"),
+                config: AppConfig::default(),
+                warnings: Vec::new(),
+            },
+        )
+    }
+
+    pub fn from_skills_with_config(skills: Vec<SkillRecord>, loaded_config: LoadedConfig) -> Self {
         let mut output = vec![
             "[system] Skillroom daemon started.".to_string(),
             format!(
@@ -155,6 +175,14 @@ impl App {
                 .as_ref()
                 .map(|error| format!("[error] {}: {error}", skill.name))
         }));
+        output.extend(
+            loaded_config
+                .warnings
+                .iter()
+                .map(|warning| format!("[config] {warning}")),
+        );
+
+        let settings = SettingsState::closed(loaded_config.config.clone());
 
         Self {
             should_quit: false,
@@ -170,6 +198,9 @@ impl App {
             output,
             stream_tick: 0,
             stream_cursor: 0,
+            config_path: loaded_config.path,
+            config: loaded_config.config,
+            settings,
         }
     }
     pub fn run(mut self, mut terminal: DefaultTerminal) -> Result<()> {
@@ -206,6 +237,11 @@ impl App {
             return;
         }
 
+        if self.settings.open {
+            self.handle_settings_key(key);
+            return;
+        }
+
         if self.input_mode == InputMode::Search {
             self.handle_search_key(key);
             return;
@@ -215,6 +251,7 @@ impl App {
             (KeyCode::Char('q'), _) => {
                 self.should_quit = true;
             }
+            (KeyCode::Char(','), _) => self.open_settings(),
             (KeyCode::Char('/'), _) => self.enter_search_mode(),
             (KeyCode::Char('?'), _) => {
                 self.show_help = !self.show_help;
@@ -239,6 +276,23 @@ impl App {
             (KeyCode::PageDown, _) => self.select_page_down(),
             (KeyCode::Char('g'), _) => self.select_first(),
             (KeyCode::Char('G'), _) => self.select_last(),
+            _ => {}
+        }
+    }
+
+    fn handle_settings_key(&mut self, key: KeyEvent) {
+        match key.code {
+            KeyCode::Esc => self.close_settings(false),
+            KeyCode::Enter => {
+                let label = self
+                    .settings_rows()
+                    .get(self.settings.selected)
+                    .map(|row| row.label.clone())
+                    .unwrap_or_else(|| "unknown".to_string());
+                self.push_output(&format!("[settings] Selected {label}."));
+            }
+            KeyCode::Up | KeyCode::Char('k') => self.select_previous_setting(),
+            KeyCode::Down | KeyCode::Char('j') => self.select_next_setting(),
             _ => {}
         }
     }
@@ -279,6 +333,24 @@ impl App {
         self.show_help = false;
     }
 
+    pub(crate) fn open_settings(&mut self) {
+        self.settings = SettingsState::open(self.config.clone());
+        self.focus = FocusArea::Settings;
+        self.input_mode = InputMode::Normal;
+        self.show_help = false;
+        self.push_output("[settings] Opened settings.");
+    }
+
+    fn close_settings(&mut self, saved: bool) {
+        self.settings.open = false;
+        self.focus = FocusArea::Table;
+        if saved {
+            self.push_output("[settings] Saved settings.");
+        } else {
+            self.push_output("[settings] Cancelled settings.");
+        }
+    }
+
     fn select_previous(&mut self) {
         self.selected = self.selected.saturating_sub(1);
     }
@@ -303,6 +375,15 @@ impl App {
 
     fn select_last(&mut self) {
         self.selected = self.visible_skill_count().saturating_sub(1);
+    }
+
+    fn select_previous_setting(&mut self) {
+        self.settings.selected = self.settings.selected.saturating_sub(1);
+    }
+
+    fn select_next_setting(&mut self) {
+        let last = self.settings_rows().len().saturating_sub(1);
+        self.settings.selected = self.settings.selected.saturating_add(1).min(last);
     }
 
     fn clamp_selection(&mut self) {
@@ -361,6 +442,50 @@ impl App {
 
     pub(crate) fn output(&self) -> &[String] {
         &self.output
+    }
+
+    pub(crate) fn config_path(&self) -> &PathBuf {
+        &self.config_path
+    }
+
+    pub(crate) fn settings_open(&self) -> bool {
+        self.settings.open
+    }
+
+    pub(crate) fn settings_selected(&self) -> usize {
+        self.settings.selected
+    }
+
+    pub(crate) fn settings_rows(&self) -> Vec<SettingsRow> {
+        vec![
+            SettingsRow::new(
+                "Theme",
+                self.settings.draft.theme.label(),
+                "Enter cycles theme",
+            ),
+            SettingsRow::new(
+                "Language",
+                self.settings.draft.language.label(),
+                "Enter cycles language",
+            ),
+            SettingsRow::new(
+                "Cache TTL",
+                format!("{}s", self.settings.draft.cache.ttl_seconds),
+                "Enter cycles TTL",
+            ),
+            SettingsRow::new("Cache", "ready", "Enter clears cache state"),
+            SettingsRow::new(
+                "Safety",
+                "delete confirmation locked",
+                "Cannot disable guard rails",
+            ),
+            SettingsRow::new(
+                "Sources",
+                format!("{} configured", self.settings.draft.sources.len()),
+                "Enter manages source",
+            ),
+            SettingsRow::new("Save", "persist config.toml", "Enter writes config"),
+        ]
     }
 
     pub(crate) fn visible_skills(&self) -> Vec<(usize, &SkillRecord)> {
@@ -463,6 +588,48 @@ impl App {
         "[status] Details panel ready.",
         "[prompt] Ready for keyboard input.",
     ];
+}
+
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub(crate) struct SettingsRow {
+    pub label: String,
+    pub value: String,
+    pub hint: String,
+}
+
+impl SettingsRow {
+    fn new(label: impl Into<String>, value: impl Into<String>, hint: impl Into<String>) -> Self {
+        Self {
+            label: label.into(),
+            value: value.into(),
+            hint: hint.into(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Eq, PartialEq)]
+struct SettingsState {
+    open: bool,
+    selected: usize,
+    draft: AppConfig,
+}
+
+impl SettingsState {
+    fn closed(config: AppConfig) -> Self {
+        Self {
+            open: false,
+            selected: 0,
+            draft: config,
+        }
+    }
+
+    fn open(config: AppConfig) -> Self {
+        Self {
+            open: true,
+            selected: 0,
+            draft: config,
+        }
+    }
 }
 
 fn contains_case_insensitive(haystack: &str, needle: &str) -> bool {
@@ -650,6 +817,45 @@ mod tests {
             app.output()
                 .iter()
                 .any(|line| line.contains("[error]") && line.contains("parse failed"))
+        );
+    }
+
+    #[test]
+    fn comma_opens_settings_and_escape_cancels() {
+        let mut app = App::default();
+
+        app.handle_key(KeyEvent::from(KeyCode::Char(',')));
+        assert!(app.settings_open());
+        assert_eq!(app.focus(), FocusArea::Settings);
+        assert_eq!(app.settings_selected(), 0);
+
+        app.handle_key(KeyEvent::from(KeyCode::Down));
+        assert_eq!(app.settings_selected(), 1);
+        app.handle_key(KeyEvent::from(KeyCode::Char('k')));
+        assert_eq!(app.settings_selected(), 0);
+
+        app.handle_key(KeyEvent::from(KeyCode::Esc));
+        assert!(!app.settings_open());
+        assert_eq!(app.focus(), FocusArea::Table);
+        assert!(
+            app.output()
+                .iter()
+                .any(|line| line.contains("Cancelled settings"))
+        );
+    }
+
+    #[test]
+    fn enter_selects_settings_row_without_closing() {
+        let mut app = App::default();
+
+        app.handle_key(KeyEvent::from(KeyCode::Char(',')));
+        app.handle_key(KeyEvent::from(KeyCode::Enter));
+
+        assert!(app.settings_open());
+        assert!(
+            app.output()
+                .iter()
+                .any(|line| line.contains("Selected Theme"))
         );
     }
 }
