@@ -10,6 +10,7 @@ pub mod local_inventory;
 pub mod parser;
 pub mod scan;
 pub mod source;
+pub mod source_check;
 
 mod app;
 mod layout;

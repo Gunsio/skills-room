@@ -409,10 +409,12 @@ impl App {
             }
             SettingsAction::SourceTest(index) => {
                 if let Some(source) = self.settings.draft.sources.get_mut(index) {
-                    source.last_status = "configured-only".to_string();
+                    let report = crate::source_check::check_source_settings(source);
+                    source.last_status = report.status_line();
                     let name = source.name.clone();
                     self.push_output(&format!(
-                        "[settings] Source {name} dry-run ok; no remote request."
+                        "[settings] Source {name} checks: {}; no remote request.",
+                        report.output_line()
                     ));
                 }
             }
@@ -1200,7 +1202,7 @@ mod tests {
             .find(|source| source.name == "custom-2")
             .unwrap();
         assert!(source.enabled);
-        assert_eq!(source.last_status, "configured-only");
+        assert!(source.last_status.contains("Api:warn"));
         assert!(
             app.output()
                 .iter()
