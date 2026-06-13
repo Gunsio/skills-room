@@ -1,5 +1,6 @@
 mod app;
 mod layout;
+pub mod skill;
 mod terminal;
 
 pub use app::App;
