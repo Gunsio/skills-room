@@ -289,14 +289,7 @@ impl App {
     fn handle_settings_key(&mut self, key: KeyEvent) {
         match key.code {
             KeyCode::Esc => self.close_settings(false),
-            KeyCode::Enter => {
-                let label = self
-                    .settings_rows()
-                    .get(self.settings.selected)
-                    .map(|row| row.label.clone())
-                    .unwrap_or_else(|| "unknown".to_string());
-                self.push_output(&format!("[settings] Selected {label}."));
-            }
+            KeyCode::Enter => self.activate_setting(),
             KeyCode::Up | KeyCode::Char('k') => self.select_previous_setting(),
             KeyCode::Down | KeyCode::Char('j') => self.select_next_setting(),
             _ => {}
@@ -354,6 +347,54 @@ impl App {
             self.push_output("[settings] Saved settings.");
         } else {
             self.push_output("[settings] Cancelled settings.");
+        }
+    }
+
+    fn activate_setting(&mut self) {
+        match self.settings.selected {
+            0 => {
+                self.settings.draft.theme = self.settings.draft.theme.next();
+                self.push_output(&format!(
+                    "[settings] Theme -> {}.",
+                    self.settings.draft.theme.label()
+                ));
+            }
+            1 => {
+                self.settings.draft.language = self.settings.draft.language.next();
+                self.push_output(&format!(
+                    "[settings] Language -> {}.",
+                    self.settings.draft.language.label()
+                ));
+            }
+            6 => self.save_settings(),
+            _ => {
+                let label = self
+                    .settings_rows()
+                    .get(self.settings.selected)
+                    .map(|row| row.label.clone())
+                    .unwrap_or_else(|| "unknown".to_string());
+                self.push_output(&format!("[settings] Selected {label}."));
+            }
+        }
+    }
+
+    fn save_settings(&mut self) {
+        let (config, warnings) = self.settings.draft.clone().normalized();
+        match crate::config::save(&self.config_path, &config) {
+            Ok(()) => {
+                self.config = config;
+                self.i18n = I18nCatalog::new(self.config.language);
+                for warning in warnings {
+                    self.push_output(&format!("[config] {warning}"));
+                }
+                for error in self.i18n.errors().to_vec() {
+                    self.push_output(&format!("[i18n] {error}"));
+                }
+                self.close_settings(true);
+            }
+            Err(error) => {
+                self.push_output(&format!("[settings] Failed to save settings: {error}"));
+            }
         }
     }
 
@@ -663,7 +704,11 @@ fn contains_case_insensitive(haystack: &str, needle: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::ThemeName;
+    use crate::{
+        config::{Language, ThemeName, load_or_default},
+        i18n::I18nKey,
+    };
+    use tempfile::tempdir;
 
     #[test]
     fn focus_order_covers_placeholders() {
@@ -878,8 +923,61 @@ mod tests {
         assert!(
             app.output()
                 .iter()
-                .any(|line| line.contains("Selected Theme"))
+                .any(|line| line.contains("Theme -> Catppuccin Mocha"))
         );
+    }
+
+    #[test]
+    fn settings_save_persists_theme_and_language() {
+        let temp = tempdir().unwrap();
+        let path = temp.path().join("config.toml");
+        let mut app = App::from_skills_with_config(
+            fixture_skills(),
+            LoadedConfig {
+                path: path.clone(),
+                config: AppConfig::default(),
+                warnings: Vec::new(),
+            },
+        );
+
+        app.handle_key(KeyEvent::from(KeyCode::Char(',')));
+        app.handle_key(KeyEvent::from(KeyCode::Enter));
+        app.handle_key(KeyEvent::from(KeyCode::Down));
+        app.handle_key(KeyEvent::from(KeyCode::Enter));
+        for _ in 0..5 {
+            app.handle_key(KeyEvent::from(KeyCode::Down));
+        }
+        app.handle_key(KeyEvent::from(KeyCode::Enter));
+
+        assert!(!app.settings_open());
+        assert_eq!(app.config.theme, ThemeName::CatppuccinMocha);
+        assert_eq!(app.config.language, Language::ZhCn);
+        assert_eq!(app.text(I18nKey::KeyQuit), "退出 ");
+
+        let loaded = load_or_default(path);
+        assert_eq!(loaded.config.theme, ThemeName::CatppuccinMocha);
+        assert_eq!(loaded.config.language, Language::ZhCn);
+    }
+
+    #[test]
+    fn settings_cancel_discards_draft_without_writing_config() {
+        let temp = tempdir().unwrap();
+        let path = temp.path().join("config.toml");
+        let mut app = App::from_skills_with_config(
+            fixture_skills(),
+            LoadedConfig {
+                path: path.clone(),
+                config: AppConfig::default(),
+                warnings: Vec::new(),
+            },
+        );
+
+        app.handle_key(KeyEvent::from(KeyCode::Char(',')));
+        app.handle_key(KeyEvent::from(KeyCode::Enter));
+        app.handle_key(KeyEvent::from(KeyCode::Esc));
+
+        assert_eq!(app.config.theme, ThemeName::TokyoNight);
+        assert!(!path.exists());
     }
 
     #[test]
