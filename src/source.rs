@@ -1,6 +1,9 @@
 use std::fmt;
 
-use crate::skill::SkillRecord;
+use crate::{
+    local_inventory::{SkillRoot, load_local_inventory},
+    skill::SkillRecord,
+};
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct SourceQuery {
@@ -66,6 +69,112 @@ pub trait SourceAdapter {
             query.scope.as_deref().unwrap_or("all")
         )
     }
+}
+
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct LocalSourceAdapter {
+    id: String,
+    records: Vec<SkillRecord>,
+}
+
+impl LocalSourceAdapter {
+    pub fn new(records: Vec<SkillRecord>) -> Self {
+        Self {
+            id: "local".to_string(),
+            records,
+        }
+    }
+
+    pub fn from_roots(roots: Vec<SkillRoot>) -> Self {
+        Self::new(load_local_inventory(roots))
+    }
+
+    pub fn records(&self) -> &[SkillRecord] {
+        &self.records
+    }
+}
+
+impl SourceAdapter for LocalSourceAdapter {
+    fn id(&self) -> &str {
+        &self.id
+    }
+
+    fn health(&self) -> SourceAdapterResult<Vec<SourceCheck>> {
+        Ok(vec![SourceCheck::pass(
+            SourceCheckKind::Api,
+            format!("{} local skills", self.records.len()),
+        )])
+    }
+
+    fn auth(&self) -> SourceAdapterResult<Vec<SourceCheck>> {
+        Ok(vec![SourceCheck::skipped(
+            SourceCheckKind::Auth,
+            "local source does not require auth",
+        )])
+    }
+
+    fn schema(&self) -> SourceAdapterResult<Vec<SourceCheck>> {
+        let invalid = self
+            .records
+            .iter()
+            .filter(|record| record.name.trim().is_empty())
+            .count();
+        if invalid == 0 {
+            Ok(vec![SourceCheck::pass(
+                SourceCheckKind::Schema,
+                "local records are normalized",
+            )])
+        } else {
+            Err(SourceError::new(
+                SourceErrorKind::Schema,
+                format!("{invalid} local records are missing names"),
+            ))
+        }
+    }
+
+    fn search(&self, query: &SourceQuery) -> SourceAdapterResult<Vec<SkillRecord>> {
+        let term = query.term.trim();
+        let mut records: Vec<SkillRecord> = if term.is_empty() {
+            self.records.clone()
+        } else {
+            self.records
+                .iter()
+                .filter(|record| local_record_matches(record, term))
+                .cloned()
+                .collect()
+        };
+        records.sort_by(|left, right| left.name.cmp(&right.name));
+        Ok(records)
+    }
+
+    fn detail(&self, request: &SourceDetailRequest) -> SourceAdapterResult<SkillRecord> {
+        self.records
+            .iter()
+            .find(|record| record.name == request.id)
+            .cloned()
+            .ok_or_else(|| {
+                SourceError::new(
+                    SourceErrorKind::Unsupported,
+                    format!("local skill {} was not found", request.id),
+                )
+            })
+    }
+}
+
+fn local_record_matches(record: &SkillRecord, term: &str) -> bool {
+    contains_case_insensitive(&record.name, term)
+        || contains_case_insensitive(record.source.label(), term)
+        || contains_case_insensitive(&record.description, term)
+        || record
+            .tags
+            .iter()
+            .any(|tag| contains_case_insensitive(tag, term))
+}
+
+fn contains_case_insensitive(haystack: &str, needle: &str) -> bool {
+    haystack
+        .to_ascii_lowercase()
+        .contains(&needle.to_ascii_lowercase())
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
@@ -204,6 +313,7 @@ impl SourceErrorKind {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::skill::fixture_skills;
 
     #[derive(Debug)]
     struct EmptyAdapter;
@@ -269,5 +379,36 @@ mod tests {
         assert!(SourceErrorKind::NetworkDegraded.retryable());
         assert!(!SourceErrorKind::Auth.retryable());
         assert!(!SourceErrorKind::Schema.retryable());
+    }
+
+    #[test]
+    fn local_adapter_searches_existing_inventory_fields() {
+        let adapter = LocalSourceAdapter::new(fixture_skills());
+        let results = adapter.search(&SourceQuery::new("review")).unwrap();
+
+        assert_eq!(results[0].name, "code-review");
+    }
+
+    #[test]
+    fn local_adapter_detail_reads_by_skill_name() {
+        let adapter = LocalSourceAdapter::new(fixture_skills());
+        let detail = adapter
+            .detail(&SourceDetailRequest::new("web-scraper"))
+            .unwrap();
+
+        assert_eq!(detail.name, "web-scraper");
+        assert_eq!(detail.source.label(), "github");
+    }
+
+    #[test]
+    fn local_adapter_checks_are_non_networked() {
+        let adapter = LocalSourceAdapter::new(fixture_skills());
+
+        assert_eq!(adapter.health().unwrap()[0].status, SourceCheckStatus::Pass);
+        assert_eq!(
+            adapter.auth().unwrap()[0].status,
+            SourceCheckStatus::Skipped
+        );
+        assert_eq!(adapter.schema().unwrap()[0].status, SourceCheckStatus::Pass);
     }
 }
