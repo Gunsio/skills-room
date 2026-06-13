@@ -2,9 +2,12 @@
 name = "skillroom"
 version = "0.1.0"
 edition = "2024"
-rust-version = "1.85"
+rust-version = "1.88"
 description = "Taproom-level terminal UI for managing Agent Skills"
 license = "MIT"
 repository = "https://example.invalid/skillroom"
 
 [dependencies]
+color-eyre = "0.6"
+crossterm = "0.29"
+ratatui = "0.30"

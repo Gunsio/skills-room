@@ -1,3 +1,3 @@
-fn main() {
-    println!("skillroom: Taproom-level Agent Skills TUI");
+fn main() -> color_eyre::Result<()> {
+    skillroom::run()
 }
