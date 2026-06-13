@@ -1,0 +1,28 @@
+---
+source: src/ui.rs
+expression: "render_snapshot(80, 24)"
+---
+┌Command───────────────────────────────────────────────────────────────────────┐
+│ Skillroom 5 / 5 skills [/] Search skills... focus=Table sort=Name asc        │
+└──────────────────────────────────────────────────────────────────────────────┘
+┌Skills──────────────────────────────────────────┐┌Details─────────────────────┐
+│Name   Sourc Scope    State    Risk     Update  ││Name: code-review           │
+│> code curat Local    Update   Medium   1.9.2   ││Description: Review pull    │
+│  data skill Global   Active   Low      current ││requests with               │
+│  lega local Local    Error    High     blocked ││repository-local conventions│
+│  tapr local Local    Ready    None     current ││and test gates.             │
+│  web- githu Global   Ready    Low      current ││Path:                       │
+│                                                │└────────────────────────────┘
+│                                                │┌Stats───────────────────────┐
+│                                                ││Filters ready               │
+│                                                ││Settings placeholder        │
+│                                                ││Visible 5                   │
+└────────────────────────────────────────────────┘└────────────────────────────┘
+┌Output────────────────────────────────────────────────────────────────────────┐
+│> [system] Skillroom daemon started.                                          │
+│> [skill] Loaded fixture skills from local storage.                           │
+│> [prompt] Ready for command.                                                 │
+└──────────────────────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ q quit  / search  ? help  Tab focus  Enter select                            │
+└──────────────────────────────────────────────────────────────────────────────┘

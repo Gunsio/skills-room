@@ -316,3 +316,50 @@ fn focused_block(title: &'static str, focused: bool) -> Block<'static> {
 
     Block::bordered().title(title).border_style(border_style)
 }
+
+#[cfg(test)]
+mod tests {
+    use ratatui::{Terminal, backend::TestBackend};
+
+    use super::*;
+    use crate::App;
+
+    #[test]
+    fn compact_80x24_snapshot() {
+        insta::assert_snapshot!(render_snapshot(80, 24));
+    }
+
+    #[test]
+    fn standard_120x40_snapshot() {
+        insta::assert_snapshot!(render_snapshot(120, 40));
+    }
+
+    #[test]
+    fn wide_160x50_snapshot() {
+        insta::assert_snapshot!(render_snapshot(160, 50));
+    }
+
+    fn render_snapshot(width: u16, height: u16) -> String {
+        let backend = TestBackend::new(width, height);
+        let mut terminal = Terminal::new(backend).unwrap();
+        let app = App::default();
+
+        terminal.draw(|frame| render(&app, frame)).unwrap();
+        buffer_to_string(terminal.backend().buffer())
+    }
+
+    fn buffer_to_string(buffer: &ratatui::buffer::Buffer) -> String {
+        let area = buffer.area;
+        let mut rows = Vec::with_capacity(area.height as usize);
+
+        for y in area.top()..area.bottom() {
+            let mut row = String::with_capacity(area.width as usize);
+            for x in area.left()..area.right() {
+                row.push_str(buffer[(x, y)].symbol());
+            }
+            rows.push(row.trim_end().to_string());
+        }
+
+        rows.join("\n")
+    }
+}

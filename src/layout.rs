@@ -32,7 +32,7 @@ impl AppLayout {
             Constraint::Length(3),
             Constraint::Fill(1),
             Constraint::Length(tier.output_height()),
-            Constraint::Length(2),
+            Constraint::Length(3),
         ])
         .areas(area);
 
