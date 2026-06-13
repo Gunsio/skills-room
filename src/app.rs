@@ -163,12 +163,11 @@ impl App {
     }
 
     fn handle_events(&mut self) -> Result<()> {
-        if event::poll(Duration::from_millis(120))? {
-            if let Event::Key(key) = event::read()? {
-                if key.kind == KeyEventKind::Press {
-                    self.handle_key(key);
-                }
-            }
+        if event::poll(Duration::from_millis(120))?
+            && let Event::Key(key) = event::read()?
+            && key.kind == KeyEventKind::Press
+        {
+            self.handle_key(key);
         }
 
         Ok(())
@@ -413,7 +412,7 @@ impl App {
 
     fn tick(&mut self) {
         self.stream_tick = self.stream_tick.saturating_add(1);
-        if self.stream_tick % Self::STREAM_INTERVAL_TICKS != 0 {
+        if !self.stream_tick.is_multiple_of(Self::STREAM_INTERVAL_TICKS) {
             return;
         }
 

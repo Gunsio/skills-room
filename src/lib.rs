@@ -1,3 +1,5 @@
+pub mod cli;
+
 mod app;
 mod layout;
 pub mod skill;
