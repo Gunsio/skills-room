@@ -46,11 +46,31 @@ fn split_frontmatter(content: &str) -> (BTreeMap<String, String>, &str) {
 }
 
 fn parse_frontmatter(frontmatter: &str) -> BTreeMap<String, String> {
-    frontmatter
-        .lines()
-        .filter_map(|line| line.split_once(':'))
-        .map(|(key, value)| (key.trim().to_string(), unquote(value.trim()).to_string()))
-        .collect()
+    let mut values = BTreeMap::new();
+    let mut lines = frontmatter.lines().peekable();
+
+    while let Some(line) = lines.next() {
+        let Some((key, value)) = line.split_once(':') else {
+            continue;
+        };
+        let key = key.trim().to_string();
+        let value = value.trim();
+
+        if matches!(value, "|" | ">") {
+            let mut block = Vec::new();
+            while let Some(next) = lines.peek() {
+                if !next.starts_with(' ') && !next.starts_with('\t') && !next.trim().is_empty() {
+                    break;
+                }
+                block.push(lines.next().unwrap().trim().to_string());
+            }
+            values.insert(key, block.join(" ").trim().to_string());
+        } else {
+            values.insert(key, unquote(value).to_string());
+        }
+    }
+
+    values
 }
 
 fn unquote(value: &str) -> &str {
@@ -200,6 +220,26 @@ Automate browser workflows.
         assert_eq!(
             parsed.description.as_deref(),
             Some("Automate browser workflows.")
+        );
+    }
+
+    #[test]
+    fn parses_block_scalar_description() {
+        let parsed = parse_skill_markdown(
+            r#"---
+description: |
+  First line.
+  Second line.
+---
+
+# Skill
+"#,
+        )
+        .unwrap();
+
+        assert_eq!(
+            parsed.description.as_deref(),
+            Some("First line. Second line.")
         );
     }
 
