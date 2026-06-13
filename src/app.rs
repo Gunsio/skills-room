@@ -455,12 +455,12 @@ impl App {
     }
 
     const OUTPUT_LIMIT: usize = 8;
-    const STREAM_INTERVAL_TICKS: usize = 4;
+    const STREAM_INTERVAL_TICKS: usize = 50;
     const STREAM_MESSAGES: [&'static str; 5] = [
-        "[scan] Checked local skill manifests.",
-        "[scan] Indexed source: skills.bytedance.net.",
-        "[sort] Applied fixture sort state.",
-        "[filter] Applied fixture filters.",
+        "[status] Local inventory ready.",
+        "[status] Search state ready.",
+        "[status] Filter state ready.",
+        "[status] Details panel ready.",
         "[prompt] Ready for keyboard input.",
     ];
 }
@@ -622,12 +622,19 @@ mod tests {
     fn streaming_output_is_bounded() {
         let mut app = App::default();
 
-        for _ in 0..64 {
+        for _ in 0..512 {
             app.tick();
         }
 
         assert_eq!(app.output().len(), App::OUTPUT_LIMIT);
         assert!(app.output().last().unwrap().starts_with("["));
+    }
+
+    #[test]
+    fn stream_messages_do_not_claim_external_or_fixture_work() {
+        assert!(App::STREAM_MESSAGES.iter().all(
+            |message| !message.contains("skills.bytedance.net") && !message.contains("fixture")
+        ));
     }
 
     #[test]
