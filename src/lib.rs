@@ -7,6 +7,7 @@ pub mod loaders;
 pub mod local_inventory;
 pub mod parser;
 pub mod scan;
+pub mod source;
 
 mod app;
 mod layout;
