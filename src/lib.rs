@@ -1,5 +1,6 @@
 pub mod cli;
 pub mod loaders;
+pub mod parser;
 pub mod scan;
 
 mod app;
