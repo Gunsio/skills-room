@@ -6,6 +6,7 @@ use ratatui::{DefaultTerminal, Frame};
 
 use crate::{
     config::{AppConfig, LoadedConfig},
+    i18n::{I18nCatalog, I18nKey},
     skill::{RiskLevel, SkillRecord, SkillScope, SkillState, Source, fixture_skills},
     theme::{ThemePalette, ThemeRegistry},
 };
@@ -27,6 +28,7 @@ pub struct App {
     stream_cursor: usize,
     config_path: PathBuf,
     config: AppConfig,
+    i18n: I18nCatalog,
     settings: SettingsState,
 }
 
@@ -183,6 +185,8 @@ impl App {
                 .map(|warning| format!("[config] {warning}")),
         );
 
+        let i18n = I18nCatalog::new(loaded_config.config.language);
+        output.extend(i18n.errors().iter().map(|error| format!("[i18n] {error}")));
         let settings = SettingsState::closed(loaded_config.config.clone());
 
         Self {
@@ -201,6 +205,7 @@ impl App {
             stream_cursor: 0,
             config_path: loaded_config.path,
             config: loaded_config.config,
+            i18n,
             settings,
         }
     }
@@ -453,6 +458,10 @@ impl App {
         ThemeRegistry::get(self.config.theme)
     }
 
+    pub(crate) fn text(&self, key: I18nKey) -> &'static str {
+        self.i18n.text(key)
+    }
+
     pub(crate) fn settings_open(&self) -> bool {
         self.settings.open
     }
@@ -464,32 +473,40 @@ impl App {
     pub(crate) fn settings_rows(&self) -> Vec<SettingsRow> {
         vec![
             SettingsRow::new(
-                "Theme",
+                self.text(I18nKey::SettingsTheme),
                 self.settings.draft.theme.label(),
-                "Enter cycles theme",
+                self.text(I18nKey::HintTheme),
             ),
             SettingsRow::new(
-                "Language",
+                self.text(I18nKey::SettingsLanguage),
                 self.settings.draft.language.label(),
-                "Enter cycles language",
+                self.text(I18nKey::HintLanguage),
             ),
             SettingsRow::new(
-                "Cache TTL",
+                self.text(I18nKey::SettingsCacheTtl),
                 format!("{}s", self.settings.draft.cache.ttl_seconds),
-                "Enter cycles TTL",
+                self.text(I18nKey::HintCacheTtl),
             ),
-            SettingsRow::new("Cache", "ready", "Enter clears cache state"),
             SettingsRow::new(
-                "Safety",
+                self.text(I18nKey::SettingsCache),
+                self.text(I18nKey::StatusReady),
+                self.text(I18nKey::HintCache),
+            ),
+            SettingsRow::new(
+                self.text(I18nKey::SettingsSafety),
                 "delete confirmation locked",
-                "Cannot disable guard rails",
+                self.text(I18nKey::HintSafety),
             ),
             SettingsRow::new(
-                "Sources",
+                self.text(I18nKey::SettingsSources),
                 format!("{} configured", self.settings.draft.sources.len()),
-                "Enter manages source",
+                self.text(I18nKey::HintSources),
             ),
-            SettingsRow::new("Save", "persist config.toml", "Enter writes config"),
+            SettingsRow::new(
+                self.text(I18nKey::SettingsSave),
+                "persist config.toml",
+                self.text(I18nKey::HintSave),
+            ),
         ]
     }
 

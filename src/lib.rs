@@ -1,6 +1,7 @@
 pub mod cache;
 pub mod cli;
 pub mod config;
+pub mod i18n;
 pub mod inventory;
 pub mod loaders;
 pub mod local_inventory;

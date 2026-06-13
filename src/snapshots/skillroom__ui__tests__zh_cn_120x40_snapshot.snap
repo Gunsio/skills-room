@@ -1,0 +1,45 @@
+---
+source: src/ui.rs
+assertion_line: 634
+expression: "render_app_snapshot(app, 120, 40)"
+---
+┌命 令 ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│ Skillroom 5 / 5 skills [/] 搜 索  skills... 焦 点 =Table 排 序 =名 称  asc                                                   │
+└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+┌Skills────────────────────────────────────────────────────────────────┐┌详 情 ──────────────────────────────────────────┐
+│名 称               来 源              范 围      状 态      风 险      更 新     ││名 称 : code-review                             │
+│> code-review     curated          Local    Update   Medium   1.9.2   ││范 围 : Local                                   │
+│  data-analysis   skills.bytedance Global   Active   Low      current ││状 态 : Update                                  │
+│  legacy-deploy   local/archive    Local    Error    High     blocked ││来 源 : curated                                 │
+│  taproom         local/git        Local    Ready    None     current ││版 本 : 1.8.0                                   │
+│  web-scraper     github           Global   Ready    Low      current ││路 径 : ~/.codex/skills/code-review             │
+│                                                                      ││Agents: 2/2 [agent-1, agent-2]                │
+│                                                                      ││风 险 : Medium                                  │
+│                                                                      ││文 件 : 12 files, 2 dirs, 1 refs, 0 assets, 360 │
+│                                                                      ││脚 本 : lint.sh, review.sh                      │
+│                                                                      ││操 作 : update, remove                          │
+│                                                                      ││错 误 : none                                    │
+│                                                                      ││描 述 : Review pull requests with repository-loc│
+│                                                                      ││标 签 : code, review, quality                   │
+│                                                                      ││                                              │
+│                                                                      ││                                              │
+│                                                                      ││                                              │
+│                                                                      ││                                              │
+│                                                                      │└──────────────────────────────────────────────┘
+│                                                                      │┌统 计 ──────────────────────────────────────────┐
+│                                                                      ││过 滤  就 绪                                      │
+│                                                                      ││设 置  占 位                                      │
+│                                                                      ││可 见  5                                        │
+│                                                                      ││总 数  5                                        │
+│                                                                      ││本 地  3                                        │
+└──────────────────────────────────────────────────────────────────────┘└──────────────────────────────────────────────┘
+┌输 出 ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│> [system] Skillroom daemon started.                                                                                  │
+│> [skill] Loaded 5 skills from local inventory.                                                                       │
+│> [prompt] Ready for command.                                                                                         │
+│> [error] legacy-deploy: SKILL.md frontmatter is missing required fields                                              │
+│                                                                                                                      │
+└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│ q 退 出   / 搜 索   ? 帮 助   , 设 置   Tab 焦 点   Enter 选 择                                                                  │
+└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘

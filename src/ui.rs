@@ -8,6 +8,7 @@ use ratatui::{
 
 use crate::{
     app::{App, FocusArea, InputMode},
+    i18n::I18nKey,
     layout::{AppLayout, too_small_message},
     skill::{RiskLevel, SkillState},
     theme::ThemePalette,
@@ -30,10 +31,10 @@ pub fn render(app: &App, frame: &mut Frame<'_>) {
     render_details(app, frame, layout.details, theme);
     render_stats(app, frame, layout.stats, theme);
     render_output(app, frame, layout.output, theme);
-    render_help(frame, layout.help, theme);
+    render_help(app, frame, layout.help, theme);
 
     if app.show_help() {
-        render_help_overlay(frame, area, theme);
+        render_help_overlay(app, frame, area, theme);
     }
 
     if app.settings_open() {
@@ -58,9 +59,9 @@ fn render_search(
             theme.muted(),
         ),
         search_prompt(app, theme),
-        Span::styled(" focus=", theme.muted()),
+        Span::styled(app.text(I18nKey::Focus), theme.muted()),
         Span::styled(app.focus().label(), theme.info()),
-        Span::styled(" sort=", theme.muted()),
+        Span::styled(app.text(I18nKey::Sort), theme.muted()),
         sort_label(app, theme),
     ]);
 
@@ -68,7 +69,7 @@ fn render_search(
         Paragraph::new(line)
             .style(theme.value())
             .block(focused_block(
-                "Command",
+                app.text(I18nKey::PanelCommand),
                 app.focus() == FocusArea::Search,
                 theme,
             ))
@@ -79,7 +80,7 @@ fn render_search(
 
 fn search_prompt(app: &App, theme: ThemePalette) -> Span<'static> {
     match app.input_mode() {
-        InputMode::Normal => Span::styled("[/] Search skills...", theme.muted()),
+        InputMode::Normal => Span::styled(app.text(I18nKey::SearchPlaceholder), theme.muted()),
         InputMode::Search if app.search_query().is_empty() => Span::styled("/ ", theme.info()),
         InputMode::Search => Span::styled(format!("/ {}", app.search_query()), theme.info()),
     }
@@ -87,10 +88,15 @@ fn search_prompt(app: &App, theme: ThemePalette) -> Span<'static> {
 
 fn sort_label(app: &App, theme: ThemePalette) -> Span<'static> {
     let direction = if app.sort_ascending() { "asc" } else { "desc" };
-    Span::styled(
-        format!("{} {direction}", app.sort_column().label()),
-        theme.info(),
-    )
+    let column = match app.sort_column() {
+        crate::app::SortColumn::Name => app.text(I18nKey::ColumnName),
+        crate::app::SortColumn::Source => app.text(I18nKey::ColumnSource),
+        crate::app::SortColumn::Scope => app.text(I18nKey::ColumnScope),
+        crate::app::SortColumn::State => app.text(I18nKey::ColumnState),
+        crate::app::SortColumn::Risk => app.text(I18nKey::ColumnRisk),
+        crate::app::SortColumn::Update => app.text(I18nKey::ColumnUpdate),
+    };
+    Span::styled(format!("{column} {direction}"), theme.info())
 }
 
 fn has_active_filters(app: &App) -> bool {
@@ -110,12 +116,12 @@ fn render_table(
     theme: ThemePalette,
 ) {
     let header = Row::new([
-        Cell::from(Span::styled("Name", theme.label())),
-        Cell::from(Span::styled("Source", theme.label())),
-        Cell::from(Span::styled("Scope", theme.label())),
-        Cell::from(Span::styled("State", theme.label())),
-        Cell::from(Span::styled("Risk", theme.label())),
-        Cell::from(Span::styled("Update", theme.label())),
+        Cell::from(Span::styled(app.text(I18nKey::ColumnName), theme.label())),
+        Cell::from(Span::styled(app.text(I18nKey::ColumnSource), theme.label())),
+        Cell::from(Span::styled(app.text(I18nKey::ColumnScope), theme.label())),
+        Cell::from(Span::styled(app.text(I18nKey::ColumnState), theme.label())),
+        Cell::from(Span::styled(app.text(I18nKey::ColumnRisk), theme.label())),
+        Cell::from(Span::styled(app.text(I18nKey::ColumnUpdate), theme.label())),
     ]);
 
     let rows = app
@@ -158,7 +164,7 @@ fn render_table(
     )
     .header(header)
     .block(focused_block(
-        "Skills",
+        app.text(I18nKey::PanelSkills),
         app.focus() == FocusArea::Table,
         theme,
     ));
@@ -175,39 +181,39 @@ fn render_details(
     let lines = match app.selected_skill() {
         Some(skill) => vec![
             Line::from(vec![
-                Span::styled("Name: ", theme.label()),
+                Span::styled(app.text(I18nKey::DetailName), theme.label()),
                 Span::styled(skill.name.clone(), theme.info()),
             ]),
             Line::from(vec![
-                Span::styled("Scope: ", theme.label()),
+                Span::styled(app.text(I18nKey::DetailScope), theme.label()),
                 Span::styled(skill.scope.label(), theme.value()),
             ]),
             Line::from(vec![
-                Span::styled("State: ", theme.label()),
+                Span::styled(app.text(I18nKey::DetailState), theme.label()),
                 Span::styled(skill.state.label(), theme.value()),
             ]),
             Line::from(vec![
-                Span::styled("Source: ", theme.label()),
+                Span::styled(app.text(I18nKey::DetailSource), theme.label()),
                 Span::styled(skill.source.label(), theme.value()),
             ]),
             Line::from(vec![
-                Span::styled("Version: ", theme.label()),
+                Span::styled(app.text(I18nKey::DetailVersion), theme.label()),
                 Span::styled(skill.version_label(), theme.value()),
             ]),
             Line::from(vec![
-                Span::styled("Path: ", theme.label()),
+                Span::styled(app.text(I18nKey::DetailPath), theme.label()),
                 Span::styled(skill.path.display().to_string(), theme.value()),
             ]),
             Line::from(vec![
-                Span::styled("Agents: ", theme.label()),
+                Span::styled(app.text(I18nKey::DetailAgents), theme.label()),
                 Span::styled(agents_summary(skill), theme.value()),
             ]),
             Line::from(vec![
-                Span::styled("Risk: ", theme.label()),
+                Span::styled(app.text(I18nKey::DetailRisk), theme.label()),
                 Span::styled(skill.risk.label(), theme.value()),
             ]),
             Line::from(vec![
-                Span::styled("Files: ", theme.label()),
+                Span::styled(app.text(I18nKey::DetailFiles), theme.label()),
                 Span::styled(
                     format!(
                         "{} files, {} dirs, {} refs, {} assets, {} lines",
@@ -221,34 +227,37 @@ fn render_details(
                 ),
             ]),
             Line::from(vec![
-                Span::styled("Scripts: ", theme.label()),
+                Span::styled(app.text(I18nKey::DetailScripts), theme.label()),
                 Span::styled(csv_or_none(&skill.scripts), theme.value()),
             ]),
             Line::from(vec![
-                Span::styled("Actions: ", theme.label()),
+                Span::styled(app.text(I18nKey::DetailActions), theme.label()),
                 Span::styled(action_summary(skill), theme.muted()),
             ]),
             Line::from(vec![
-                Span::styled("Error: ", theme.label()),
+                Span::styled(app.text(I18nKey::DetailError), theme.label()),
                 Span::styled(skill.error.as_deref().unwrap_or("none"), theme.value()),
             ]),
             Line::from(vec![
-                Span::styled("Description: ", theme.label()),
+                Span::styled(app.text(I18nKey::DetailDescription), theme.label()),
                 Span::styled(skill.description.clone(), theme.value()),
             ]),
             Line::from(vec![
-                Span::styled("Tags: ", theme.label()),
+                Span::styled(app.text(I18nKey::DetailTags), theme.label()),
                 Span::styled(csv_or_none(&skill.tags), theme.muted()),
             ]),
         ],
-        None => vec![Line::from(Span::styled("No skill selected", theme.muted()))],
+        None => vec![Line::from(Span::styled(
+            app.text(I18nKey::NoSkillSelected),
+            theme.muted(),
+        ))],
     };
 
     frame.render_widget(
         Paragraph::new(lines)
             .style(theme.value())
             .block(focused_block(
-                "Details",
+                app.text(I18nKey::PanelDetails),
                 app.focus() == FocusArea::Details,
                 theme,
             )),
@@ -290,41 +299,41 @@ fn render_stats(
 
     let lines = vec![
         Line::from(vec![
-            Span::styled("Filters ", theme.muted()),
+            Span::styled(app.text(I18nKey::StatFilters), theme.muted()),
             if has_active_filters(app) {
-                Span::styled("active", theme.warning())
+                Span::styled(app.text(I18nKey::StatusActive), theme.warning())
             } else if app.focus() == FocusArea::Filters {
-                Span::styled("focused", theme.info())
+                Span::styled(app.text(I18nKey::StatusFocused), theme.info())
             } else {
-                Span::styled("ready", theme.muted())
+                Span::styled(app.text(I18nKey::StatusReady), theme.muted())
             },
         ]),
         Line::from(vec![
-            Span::styled("Settings ", theme.muted()),
+            Span::styled(app.text(I18nKey::StatSettings), theme.muted()),
             if app.focus() == FocusArea::Settings {
-                Span::styled("focused", theme.info())
+                Span::styled(app.text(I18nKey::StatusFocused), theme.info())
             } else {
-                Span::styled("placeholder", theme.muted())
+                Span::styled(app.text(I18nKey::StatusPlaceholder), theme.muted())
             },
         ]),
         Line::from(vec![
-            Span::styled("Visible ", theme.muted()),
+            Span::styled(app.text(I18nKey::StatVisible), theme.muted()),
             Span::styled(visible.to_string(), theme.label()),
         ]),
         Line::from(vec![
-            Span::styled("Total ", theme.muted()),
+            Span::styled(app.text(I18nKey::StatTotal), theme.muted()),
             Span::styled(total.to_string(), theme.label()),
         ]),
         Line::from(vec![
-            Span::styled("Local ", theme.muted()),
+            Span::styled(app.text(I18nKey::StatLocal), theme.muted()),
             Span::styled(local.to_string(), theme.info()),
         ]),
         Line::from(vec![
-            Span::styled("Updates ", theme.muted()),
+            Span::styled(app.text(I18nKey::StatUpdates), theme.muted()),
             Span::styled(updates.to_string(), theme.warning()),
         ]),
         Line::from(vec![
-            Span::styled("High risk ", theme.muted()),
+            Span::styled(app.text(I18nKey::StatHighRisk), theme.muted()),
             Span::styled(high_risk.to_string(), theme.error()),
         ]),
     ];
@@ -333,7 +342,7 @@ fn render_stats(
         Paragraph::new(lines)
             .style(theme.value())
             .block(focused_block(
-                "Stats",
+                app.text(I18nKey::PanelStats),
                 matches!(app.focus(), FocusArea::Filters | FocusArea::Settings),
                 theme,
             )),
@@ -402,28 +411,28 @@ fn render_output(
     frame.render_widget(
         Paragraph::new(lines)
             .style(theme.value())
-            .block(focused_block("Output", false, theme))
+            .block(focused_block(app.text(I18nKey::PanelOutput), false, theme))
             .wrap(Wrap { trim: false }),
         area,
     );
 }
 
-fn render_help(frame: &mut Frame<'_>, area: ratatui::layout::Rect, theme: ThemePalette) {
+fn render_help(app: &App, frame: &mut Frame<'_>, area: ratatui::layout::Rect, theme: ThemePalette) {
     let key_style = theme.title();
     let text_style = theme.muted();
     let help = Line::from(vec![
         Span::styled(" q ", key_style),
-        Span::styled("quit ", text_style),
+        Span::styled(app.text(I18nKey::KeyQuit), text_style),
         Span::styled(" / ", key_style),
-        Span::styled("search ", text_style),
+        Span::styled(app.text(I18nKey::KeySearch), text_style),
         Span::styled(" ? ", key_style),
-        Span::styled("help ", text_style),
+        Span::styled(app.text(I18nKey::KeyHelp), text_style),
         Span::styled(" , ", key_style),
-        Span::styled("settings ", text_style),
+        Span::styled(app.text(I18nKey::KeySettings), text_style),
         Span::styled(" Tab ", key_style),
-        Span::styled("focus ", text_style),
+        Span::styled(app.text(I18nKey::KeyFocus), text_style),
         Span::styled(" Enter ", key_style),
-        Span::styled("select", text_style),
+        Span::styled(app.text(I18nKey::KeySelect), text_style),
     ]);
 
     frame.render_widget(
@@ -443,12 +452,12 @@ fn render_settings(
     let popup = centered_rect(area, 72, 70);
     let mut lines = vec![
         Line::from(vec![
-            Span::styled("Settings", theme.title()),
+            Span::styled(app.text(I18nKey::PanelSettings), theme.title()),
             Span::raw("  "),
-            Span::styled("Esc cancels", theme.muted()),
+            Span::styled(app.text(I18nKey::SettingsEscCancels), theme.muted()),
         ]),
         Line::from(vec![
-            Span::styled("Config: ", theme.muted()),
+            Span::styled(app.text(I18nKey::SettingsConfig), theme.muted()),
             Span::styled(app.config_path().display().to_string(), theme.value()),
         ]),
         Line::from(""),
@@ -478,36 +487,41 @@ fn render_settings(
     frame.render_widget(
         Paragraph::new(lines)
             .style(theme.value())
-            .block(focused_block("Settings", true, theme)),
+            .block(focused_block(app.text(I18nKey::PanelSettings), true, theme)),
         popup,
     );
 }
 
-fn render_help_overlay(frame: &mut Frame<'_>, area: ratatui::layout::Rect, theme: ThemePalette) {
+fn render_help_overlay(
+    app: &App,
+    frame: &mut Frame<'_>,
+    area: ratatui::layout::Rect,
+    theme: ThemePalette,
+) {
     let popup = centered_rect(area, 64, 52);
     let lines = vec![
-        Line::from(Span::styled("Navigation", theme.title())),
-        Line::from(Span::styled("j/k or arrows: move selection", theme.value())),
         Line::from(Span::styled(
-            "PageUp/PageDown: page selection",
+            app.text(I18nKey::HelpNavigation),
+            theme.title(),
+        )),
+        Line::from(Span::styled(app.text(I18nKey::HelpMove), theme.value())),
+        Line::from(Span::styled(app.text(I18nKey::HelpPage), theme.value())),
+        Line::from(Span::styled(
+            app.text(I18nKey::HelpTopBottom),
             theme.value(),
         )),
-        Line::from(Span::styled("g/G: jump to top/bottom", theme.value())),
-        Line::from(Span::styled("Tab / Shift+Tab: cycle focus", theme.value())),
-        Line::from(Span::styled(
-            "s/S: cycle sort column / reverse sort",
-            theme.value(),
-        )),
-        Line::from(Span::styled(",: open settings", theme.value())),
-        Line::from(Span::styled("?: close help", theme.value())),
-        Line::from(Span::styled("q: quit", theme.value())),
+        Line::from(Span::styled(app.text(I18nKey::HelpFocus), theme.value())),
+        Line::from(Span::styled(app.text(I18nKey::HelpSort), theme.value())),
+        Line::from(Span::styled(app.text(I18nKey::HelpSettings), theme.value())),
+        Line::from(Span::styled(app.text(I18nKey::HelpClose), theme.value())),
+        Line::from(Span::styled(app.text(I18nKey::HelpQuit), theme.value())),
     ];
 
     frame.render_widget(ratatui::widgets::Clear, popup);
     frame.render_widget(
         Paragraph::new(lines)
             .style(theme.value())
-            .block(focused_block("Help", true, theme))
+            .block(focused_block(app.text(I18nKey::PanelHelp), true, theme))
             .wrap(Wrap { trim: false }),
         popup,
     );
@@ -572,10 +586,16 @@ fn focused_block(title: &'static str, focused: bool, theme: ThemePalette) -> Blo
 
 #[cfg(test)]
 mod tests {
+    use std::path::PathBuf;
+
     use ratatui::{Terminal, backend::TestBackend};
 
     use super::*;
-    use crate::App;
+    use crate::{
+        App,
+        config::{AppConfig, Language, LoadedConfig},
+        skill::fixture_skills,
+    };
 
     #[test]
     fn compact_80x24_snapshot() {
@@ -597,10 +617,30 @@ mod tests {
         insta::assert_snapshot!(render_settings_snapshot(120, 40));
     }
 
+    #[test]
+    fn zh_cn_120x40_snapshot() {
+        let app = App::from_skills_with_config(
+            fixture_skills(),
+            LoadedConfig {
+                path: PathBuf::from("skillroom/config.toml"),
+                config: AppConfig {
+                    language: Language::ZhCn,
+                    ..AppConfig::default()
+                },
+                warnings: Vec::new(),
+            },
+        );
+
+        insta::assert_snapshot!(render_app_snapshot(app, 120, 40));
+    }
+
     fn render_snapshot(width: u16, height: u16) -> String {
+        render_app_snapshot(App::default(), width, height)
+    }
+
+    fn render_app_snapshot(app: App, width: u16, height: u16) -> String {
         let backend = TestBackend::new(width, height);
         let mut terminal = Terminal::new(backend).unwrap();
-        let app = App::default();
 
         terminal.draw(|frame| render(&app, frame)).unwrap();
         buffer_to_string(terminal.backend().buffer())
