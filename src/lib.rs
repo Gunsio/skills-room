@@ -1,4 +1,5 @@
 pub mod cli;
+pub mod loaders;
 
 mod app;
 mod layout;

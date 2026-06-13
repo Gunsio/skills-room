@@ -1421,6 +1421,8 @@ dependencies = [
  "crossterm",
  "insta",
  "ratatui",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
