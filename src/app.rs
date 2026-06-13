@@ -12,6 +12,7 @@ pub struct App {
     skills: Vec<SkillRecord>,
     selected: usize,
     focus: FocusArea,
+    show_help: bool,
     output: Vec<String>,
 }
 
@@ -67,6 +68,7 @@ impl Default for App {
             skills: fixture_skills(),
             selected: 0,
             focus: FocusArea::Table,
+            show_help: false,
             output: vec![
                 "[system] Skillroom daemon started.".to_string(),
                 "[skill] Loaded fixture skills from local storage.".to_string(),
@@ -107,9 +109,52 @@ impl App {
             (KeyCode::Char('q'), _) | (KeyCode::Char('c'), KeyModifiers::CONTROL) => {
                 self.should_quit = true;
             }
+            (KeyCode::Char('?'), _) => {
+                self.show_help = !self.show_help;
+            }
+            (KeyCode::Tab, KeyModifiers::SHIFT) => {
+                self.focus = self.focus.previous();
+            }
+            (KeyCode::Tab, _) => {
+                self.focus = self.focus.next();
+            }
+            (KeyCode::Up | KeyCode::Char('k'), _) => self.select_previous(),
+            (KeyCode::Down | KeyCode::Char('j'), _) => self.select_next(),
+            (KeyCode::PageUp, _) => self.select_page_up(),
+            (KeyCode::PageDown, _) => self.select_page_down(),
+            (KeyCode::Char('g'), _) => self.select_first(),
+            (KeyCode::Char('G'), _) => self.select_last(),
             _ => {}
         }
     }
+
+    fn select_previous(&mut self) {
+        self.selected = self.selected.saturating_sub(1);
+    }
+
+    fn select_next(&mut self) {
+        let last = self.skills.len().saturating_sub(1);
+        self.selected = self.selected.saturating_add(1).min(last);
+    }
+
+    fn select_page_up(&mut self) {
+        self.selected = self.selected.saturating_sub(Self::PAGE_SIZE);
+    }
+
+    fn select_page_down(&mut self) {
+        let last = self.skills.len().saturating_sub(1);
+        self.selected = self.selected.saturating_add(Self::PAGE_SIZE).min(last);
+    }
+
+    fn select_first(&mut self) {
+        self.selected = 0;
+    }
+
+    fn select_last(&mut self) {
+        self.selected = self.skills.len().saturating_sub(1);
+    }
+
+    const PAGE_SIZE: usize = 5;
 
     pub(crate) fn skills(&self) -> &[SkillRecord] {
         &self.skills
@@ -125,6 +170,10 @@ impl App {
 
     pub(crate) fn focus(&self) -> FocusArea {
         self.focus
+    }
+
+    pub(crate) fn show_help(&self) -> bool {
+        self.show_help
     }
 
     pub(crate) fn output(&self) -> &[String] {
@@ -158,5 +207,42 @@ mod tests {
         );
         assert_eq!(focus, FocusArea::Table);
         assert_eq!(focus.previous(), FocusArea::Settings);
+    }
+
+    #[test]
+    fn navigation_keys_clamp_selection() {
+        let mut app = App::default();
+
+        app.handle_key(KeyEvent::from(KeyCode::Up));
+        assert_eq!(app.selected_index(), 0);
+
+        app.handle_key(KeyEvent::from(KeyCode::Down));
+        assert_eq!(app.selected_index(), 1);
+
+        app.handle_key(KeyEvent::from(KeyCode::PageDown));
+        assert_eq!(app.selected_index(), app.skills().len() - 1);
+
+        app.handle_key(KeyEvent::from(KeyCode::PageUp));
+        assert_eq!(app.selected_index(), 0);
+
+        app.handle_key(KeyEvent::from(KeyCode::Char('G')));
+        assert_eq!(app.selected_index(), app.skills().len() - 1);
+
+        app.handle_key(KeyEvent::from(KeyCode::Char('g')));
+        assert_eq!(app.selected_index(), 0);
+    }
+
+    #[test]
+    fn tab_and_help_keys_update_global_state() {
+        let mut app = App::default();
+
+        app.handle_key(KeyEvent::from(KeyCode::Tab));
+        assert_eq!(app.focus(), FocusArea::Search);
+
+        app.handle_key(KeyEvent::from(KeyCode::Char('?')));
+        assert!(app.show_help());
+
+        app.handle_key(KeyEvent::from(KeyCode::Char('?')));
+        assert!(!app.show_help());
     }
 }

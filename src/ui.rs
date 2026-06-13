@@ -28,6 +28,10 @@ pub fn render(app: &App, frame: &mut Frame<'_>) {
     render_stats(app, frame, layout.stats);
     render_output(app, frame, layout.output);
     render_help(frame, layout.help);
+
+    if app.show_help() {
+        render_help_overlay(frame, area);
+    }
 }
 
 fn render_search(app: &App, frame: &mut Frame<'_>, area: ratatui::layout::Rect) {
@@ -199,6 +203,51 @@ fn render_help(frame: &mut Frame<'_>, area: ratatui::layout::Rect) {
     ]);
 
     frame.render_widget(Paragraph::new(help).block(Block::bordered()), area);
+}
+
+fn render_help_overlay(frame: &mut Frame<'_>, area: ratatui::layout::Rect) {
+    let popup = centered_rect(area, 64, 52);
+    let lines = vec![
+        Line::from("Navigation".bold().cyan()),
+        Line::from("j/k or arrows: move selection"),
+        Line::from("PageUp/PageDown: page selection"),
+        Line::from("g/G: jump to top/bottom"),
+        Line::from("Tab / Shift+Tab: cycle focus"),
+        Line::from("?: close help"),
+        Line::from("q: quit"),
+    ];
+
+    frame.render_widget(ratatui::widgets::Clear, popup);
+    frame.render_widget(
+        Paragraph::new(lines)
+            .block(focused_block("Help", true))
+            .wrap(Wrap { trim: false }),
+        popup,
+    );
+}
+
+fn centered_rect(
+    area: ratatui::layout::Rect,
+    percent_x: u16,
+    percent_y: u16,
+) -> ratatui::layout::Rect {
+    use ratatui::layout::{Constraint, Layout};
+
+    let [_, center, _] = Layout::vertical([
+        Constraint::Percentage((100 - percent_y) / 2),
+        Constraint::Percentage(percent_y),
+        Constraint::Percentage((100 - percent_y) / 2),
+    ])
+    .areas(area);
+
+    let [_, center, _] = Layout::horizontal([
+        Constraint::Percentage((100 - percent_x) / 2),
+        Constraint::Percentage(percent_x),
+        Constraint::Percentage((100 - percent_x) / 2),
+    ])
+    .areas(center);
+
+    center
 }
 
 fn state_line(state: SkillState) -> Line<'static> {
