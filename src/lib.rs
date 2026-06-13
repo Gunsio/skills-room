@@ -1,4 +1,5 @@
 pub mod agentbuddy;
+pub mod agentbuddy_marketplace;
 pub mod cache;
 pub mod cli;
 pub mod config;
