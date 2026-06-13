@@ -366,6 +366,18 @@ impl App {
                     self.settings.draft.language.label()
                 ));
             }
+            2 => {
+                self.settings.draft.cache.ttl_seconds =
+                    next_cache_ttl(self.settings.draft.cache.ttl_seconds);
+                self.push_output(&format!(
+                    "[settings] Cache TTL -> {}s.",
+                    self.settings.draft.cache.ttl_seconds
+                ));
+            }
+            3 => {
+                self.settings.draft.cache.last_status = "clear-requested".to_string();
+                self.push_output("[settings] Cache clear requested.");
+            }
             6 => self.save_settings(),
             _ => {
                 let label = self
@@ -530,7 +542,7 @@ impl App {
             ),
             SettingsRow::new(
                 self.text(I18nKey::SettingsCache),
-                self.text(I18nKey::StatusReady),
+                self.settings.draft.cache.last_status.clone(),
                 self.text(I18nKey::HintCache),
             ),
             SettingsRow::new(
@@ -651,6 +663,15 @@ impl App {
         "[status] Details panel ready.",
         "[prompt] Ready for keyboard input.",
     ];
+}
+
+fn next_cache_ttl(current: u64) -> u64 {
+    const TTL_VALUES: [u64; 4] = [300, 1_800, 3_600, 86_400];
+    let index = TTL_VALUES
+        .iter()
+        .position(|ttl| *ttl == current)
+        .unwrap_or(1);
+    TTL_VALUES[(index + 1) % TTL_VALUES.len()]
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
@@ -978,6 +999,35 @@ mod tests {
 
         assert_eq!(app.config.theme, ThemeName::TokyoNight);
         assert!(!path.exists());
+    }
+
+    #[test]
+    fn settings_cache_controls_persist_after_save() {
+        let temp = tempdir().unwrap();
+        let path = temp.path().join("config.toml");
+        let mut app = App::from_skills_with_config(
+            fixture_skills(),
+            LoadedConfig {
+                path: path.clone(),
+                config: AppConfig::default(),
+                warnings: Vec::new(),
+            },
+        );
+
+        app.handle_key(KeyEvent::from(KeyCode::Char(',')));
+        app.handle_key(KeyEvent::from(KeyCode::Down));
+        app.handle_key(KeyEvent::from(KeyCode::Down));
+        app.handle_key(KeyEvent::from(KeyCode::Enter));
+        app.handle_key(KeyEvent::from(KeyCode::Down));
+        app.handle_key(KeyEvent::from(KeyCode::Enter));
+        for _ in 0..3 {
+            app.handle_key(KeyEvent::from(KeyCode::Down));
+        }
+        app.handle_key(KeyEvent::from(KeyCode::Enter));
+
+        let loaded = load_or_default(path);
+        assert_eq!(loaded.config.cache.ttl_seconds, 3_600);
+        assert_eq!(loaded.config.cache.last_status, "clear-requested");
     }
 
     #[test]
