@@ -12,8 +12,16 @@ pub struct App {
     skills: Vec<SkillRecord>,
     selected: usize,
     focus: FocusArea,
+    input_mode: InputMode,
+    search_query: String,
     show_help: bool,
     output: Vec<String>,
+}
+
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub enum InputMode {
+    Normal,
+    Search,
 }
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
@@ -68,6 +76,8 @@ impl Default for App {
             skills: fixture_skills(),
             selected: 0,
             focus: FocusArea::Table,
+            input_mode: InputMode::Normal,
+            search_query: String::new(),
             show_help: false,
             output: vec![
                 "[system] Skillroom daemon started.".to_string(),
@@ -105,10 +115,24 @@ impl App {
     }
 
     fn handle_key(&mut self, key: KeyEvent) {
+        if matches!(
+            (key.code, key.modifiers),
+            (KeyCode::Char('c'), KeyModifiers::CONTROL)
+        ) {
+            self.should_quit = true;
+            return;
+        }
+
+        if self.input_mode == InputMode::Search {
+            self.handle_search_key(key);
+            return;
+        }
+
         match (key.code, key.modifiers) {
-            (KeyCode::Char('q'), _) | (KeyCode::Char('c'), KeyModifiers::CONTROL) => {
+            (KeyCode::Char('q'), _) => {
                 self.should_quit = true;
             }
+            (KeyCode::Char('/'), _) => self.enter_search_mode(),
             (KeyCode::Char('?'), _) => {
                 self.show_help = !self.show_help;
             }
@@ -126,6 +150,39 @@ impl App {
             (KeyCode::Char('G'), _) => self.select_last(),
             _ => {}
         }
+    }
+
+    fn handle_search_key(&mut self, key: KeyEvent) {
+        match key.code {
+            KeyCode::Esc => {
+                if self.search_query.is_empty() {
+                    self.input_mode = InputMode::Normal;
+                    self.focus = FocusArea::Table;
+                } else {
+                    self.search_query.clear();
+                }
+            }
+            KeyCode::Enter => {
+                self.input_mode = InputMode::Normal;
+                self.focus = FocusArea::Table;
+            }
+            KeyCode::Backspace => {
+                self.search_query.pop();
+            }
+            KeyCode::Char(character)
+                if !key.modifiers.contains(KeyModifiers::CONTROL)
+                    && !key.modifiers.contains(KeyModifiers::ALT) =>
+            {
+                self.search_query.push(character);
+            }
+            _ => {}
+        }
+    }
+
+    fn enter_search_mode(&mut self) {
+        self.input_mode = InputMode::Search;
+        self.focus = FocusArea::Search;
+        self.show_help = false;
     }
 
     fn select_previous(&mut self) {
@@ -170,6 +227,14 @@ impl App {
 
     pub(crate) fn focus(&self) -> FocusArea {
         self.focus
+    }
+
+    pub(crate) fn input_mode(&self) -> InputMode {
+        self.input_mode
+    }
+
+    pub(crate) fn search_query(&self) -> &str {
+        &self.search_query
     }
 
     pub(crate) fn show_help(&self) -> bool {
@@ -244,5 +309,37 @@ mod tests {
 
         app.handle_key(KeyEvent::from(KeyCode::Char('?')));
         assert!(!app.show_help());
+    }
+
+    #[test]
+    fn slash_enters_search_and_escape_clears_then_exits() {
+        let mut app = App::default();
+
+        app.handle_key(KeyEvent::from(KeyCode::Char('/')));
+        assert_eq!(app.input_mode(), InputMode::Search);
+        assert_eq!(app.focus(), FocusArea::Search);
+
+        app.handle_key(KeyEvent::from(KeyCode::Char('d')));
+        app.handle_key(KeyEvent::from(KeyCode::Char('a')));
+        assert_eq!(app.search_query(), "da");
+
+        app.handle_key(KeyEvent::from(KeyCode::Esc));
+        assert_eq!(app.search_query(), "");
+        assert_eq!(app.input_mode(), InputMode::Search);
+
+        app.handle_key(KeyEvent::from(KeyCode::Esc));
+        assert_eq!(app.input_mode(), InputMode::Normal);
+        assert_eq!(app.focus(), FocusArea::Table);
+    }
+
+    #[test]
+    fn search_mode_keeps_q_as_query_text() {
+        let mut app = App::default();
+
+        app.handle_key(KeyEvent::from(KeyCode::Char('/')));
+        app.handle_key(KeyEvent::from(KeyCode::Char('q')));
+
+        assert_eq!(app.search_query(), "q");
+        assert!(!app.should_quit);
     }
 }

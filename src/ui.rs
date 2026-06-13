@@ -7,7 +7,7 @@ use ratatui::{
 };
 
 use crate::{
-    app::{App, FocusArea},
+    app::{App, FocusArea, InputMode},
     layout::{AppLayout, too_small_message},
     skill::{RiskLevel, SkillState},
 };
@@ -38,7 +38,7 @@ fn render_search(app: &App, frame: &mut Frame<'_>, area: ratatui::layout::Rect) 
     let line = Line::from(vec![
         " Skillroom ".bold().cyan(),
         format!("{} skills ", app.skills().len()).dim(),
-        "[/] Search skills...".dim(),
+        search_prompt(app),
         " focus=".dim(),
         app.focus().label().cyan(),
     ]);
@@ -49,6 +49,14 @@ fn render_search(app: &App, frame: &mut Frame<'_>, area: ratatui::layout::Rect) 
             .alignment(Alignment::Left),
         area,
     );
+}
+
+fn search_prompt(app: &App) -> Span<'static> {
+    match app.input_mode() {
+        InputMode::Normal => "[/] Search skills...".dim(),
+        InputMode::Search if app.search_query().is_empty() => "/ ".cyan(),
+        InputMode::Search => format!("/ {}", app.search_query()).cyan(),
+    }
 }
 
 fn render_table(app: &App, frame: &mut Frame<'_>, area: ratatui::layout::Rect) {
