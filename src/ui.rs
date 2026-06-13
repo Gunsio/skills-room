@@ -147,9 +147,29 @@ fn render_details(app: &App, frame: &mut Frame<'_>, area: ratatui::layout::Rect)
                 "Path: ".bold(),
                 skill.path.display().to_string().into(),
             ]),
+            Line::from(vec!["Scope: ".bold(), skill.scope.label().into()]),
             Line::from(vec!["Version: ".bold(), skill.version_label().into()]),
             Line::from(vec!["Source: ".bold(), skill.source.label().into()]),
+            Line::from(vec!["Agents: ".bold(), agents_summary(skill).into()]),
+            Line::from(vec!["Risk: ".bold(), skill.risk.label().into()]),
+            Line::from(vec![
+                "Files: ".bold(),
+                format!(
+                    "{} files, {} dirs, {} refs, {} assets, {} lines",
+                    skill.stats.files,
+                    skill.stats.directories,
+                    skill.stats.references,
+                    skill.stats.assets,
+                    skill.stats.line_count
+                )
+                .into(),
+            ]),
             Line::from(vec!["Scripts: ".bold(), skill.scripts.join(", ").into()]),
+            Line::from(vec!["Actions: ".bold(), action_summary(skill).dim()]),
+            Line::from(vec![
+                "Error: ".bold(),
+                skill.error.as_deref().unwrap_or("none").into(),
+            ]),
             Line::from(vec!["Tags: ".bold(), skill.tags.join(", ").dim()]),
         ],
         None => vec![Line::from("No skill selected".dim())],
@@ -215,6 +235,47 @@ fn render_stats(app: &App, frame: &mut Frame<'_>, area: ratatui::layout::Rect) {
         )),
         area,
     );
+}
+
+fn agents_summary(skill: &crate::skill::SkillRecord) -> String {
+    if skill.agents.is_empty() {
+        return "0".to_string();
+    }
+
+    let enabled = skill.agents_count();
+    let names = skill
+        .agents
+        .iter()
+        .map(|agent| {
+            if agent.enabled {
+                agent.name.clone()
+            } else {
+                format!("{}:off", agent.name)
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
+
+    format!("{enabled}/{} [{names}]", skill.agents.len())
+}
+
+fn action_summary(skill: &crate::skill::SkillRecord) -> String {
+    let mut actions = Vec::new();
+    if !skill.command_plan.install.is_empty() {
+        actions.push("install");
+    }
+    if !skill.command_plan.update.is_empty() {
+        actions.push("update");
+    }
+    if !skill.command_plan.remove.is_empty() {
+        actions.push("remove");
+    }
+
+    if actions.is_empty() {
+        "none".to_string()
+    } else {
+        actions.join(", ")
+    }
 }
 
 fn render_output(app: &App, frame: &mut Frame<'_>, area: ratatui::layout::Rect) {
