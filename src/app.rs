@@ -601,37 +601,49 @@ impl App {
             ),
             SettingsAction::Safety => SettingsRow::new(
                 self.text(I18nKey::SettingsSafety),
-                safety_summary(&self.settings.draft),
+                safety_summary(
+                    &self.settings.draft,
+                    self.text(I18nKey::ValueSafetyLocked),
+                    self.text(I18nKey::ValueSafetyRestored),
+                ),
                 self.text(I18nKey::HintSafety),
             ),
             SettingsAction::SourceAdd => SettingsRow::new(
                 self.text(I18nKey::SettingsSources),
-                format!("{} configured", self.settings.draft.sources.len()),
-                "Enter adds disabled source",
+                format!(
+                    "{}{}",
+                    self.settings.draft.sources.len(),
+                    self.text(I18nKey::ValueConfiguredSources)
+                ),
+                self.text(I18nKey::HintSources),
             ),
             SettingsAction::SourceToggle(index) => {
                 let source = &self.settings.draft.sources[index];
                 SettingsRow::new(
-                    format!("Source {}", source.name),
+                    format!(
+                        "{}{}",
+                        self.text(I18nKey::SettingsSourcePrefix),
+                        source.name
+                    ),
                     if source.enabled {
-                        "enabled"
+                        self.text(I18nKey::ValueEnabled)
                     } else {
-                        "disabled"
+                        self.text(I18nKey::ValueDisabled)
                     },
-                    "Enter toggles source",
+                    self.text(I18nKey::HintSourceToggle),
                 )
             }
             SettingsAction::SourceTest(index) => {
                 let source = &self.settings.draft.sources[index];
                 SettingsRow::new(
-                    format!("Test {}", source.name),
+                    format!("{}{}", self.text(I18nKey::SettingsTestPrefix), source.name),
                     source.last_status.clone(),
-                    "Enter dry-runs source",
+                    self.text(I18nKey::HintSourceTest),
                 )
             }
             SettingsAction::Save => SettingsRow::new(
                 self.text(I18nKey::SettingsSave),
-                "persist config.toml",
+                self.text(I18nKey::ValueSavePersist),
                 self.text(I18nKey::HintSave),
             ),
         }
@@ -748,11 +760,15 @@ fn next_cache_ttl(current: u64) -> u64 {
     TTL_VALUES[(index + 1) % TTL_VALUES.len()]
 }
 
-fn safety_summary(config: &AppConfig) -> &'static str {
+fn safety_summary(
+    config: &AppConfig,
+    locked: &'static str,
+    restored: &'static str,
+) -> &'static str {
     if config.safety.delete_confirmation && config.safety.home_delete_guard {
-        "locked"
+        locked
     } else {
-        "restored on save"
+        restored
     }
 }
 

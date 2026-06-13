@@ -636,6 +636,24 @@ mod tests {
     }
 
     #[test]
+    fn zh_cn_settings_120x40_snapshot() {
+        let mut app = App::from_skills_with_config(
+            fixture_skills(),
+            LoadedConfig {
+                path: PathBuf::from("skillroom/config.toml"),
+                config: AppConfig {
+                    language: Language::ZhCn,
+                    ..AppConfig::default()
+                },
+                warnings: Vec::new(),
+            },
+        );
+        app.open_settings();
+
+        insta::assert_snapshot!(render_app_snapshot(app, 120, 40));
+    }
+
+    #[test]
     fn all_themes_render_main_and_settings_without_panics() {
         for theme in ThemeRegistry::all() {
             let app = App::from_skills_with_config(
