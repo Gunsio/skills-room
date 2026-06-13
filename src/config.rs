@@ -55,6 +55,16 @@ impl AppConfig {
             warnings.push(ConfigWarning::DefaultSourceRestored);
             self.sources.push(SourceSettings::bytedance());
         }
+        for source in &mut self.sources {
+            if source.name == "skills.bytedance.net"
+                || source.url.trim_end_matches('/') == "https://skills.bytedance.net"
+            {
+                warnings.push(ConfigWarning::SourceMigrated(source.name.clone()));
+                *source = SourceSettings::bytedance();
+            } else {
+                source.normalize();
+            }
+        }
 
         (self, warnings)
     }
@@ -164,7 +174,11 @@ impl Default for SafetySettings {
 #[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
 pub struct SourceSettings {
     pub name: String,
+    #[serde(default)]
+    pub kind: SourceKind,
     pub url: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub portal_url: Option<String>,
     pub enabled: bool,
     pub last_status: String,
 }
@@ -172,8 +186,10 @@ pub struct SourceSettings {
 impl SourceSettings {
     pub fn bytedance() -> Self {
         Self {
-            name: "skills.bytedance.net".to_string(),
-            url: "https://skills.bytedance.net/".to_string(),
+            name: "bytedance-agentbuddy".to_string(),
+            kind: SourceKind::AgentBuddy,
+            url: "https://artifact-api.byted.org".to_string(),
+            portal_url: Some("https://skills.bytedance.net/".to_string()),
             enabled: true,
             last_status: "not-tested".to_string(),
         }
@@ -182,9 +198,52 @@ impl SourceSettings {
     pub fn custom(index: usize) -> Self {
         Self {
             name: format!("custom-{index}"),
+            kind: SourceKind::Custom,
             url: format!("https://example.invalid/skills/{index}"),
+            portal_url: None,
             enabled: false,
             last_status: "not-tested".to_string(),
+        }
+    }
+
+    pub fn well_known(name: impl Into<String>, url: impl Into<String>) -> Self {
+        Self {
+            name: name.into(),
+            kind: SourceKind::WellKnown,
+            url: url.into(),
+            portal_url: None,
+            enabled: false,
+            last_status: "not-tested".to_string(),
+        }
+    }
+
+    fn normalize(&mut self) {
+        if self.name.trim().is_empty() {
+            self.name = "custom-source".to_string();
+        }
+        if self.url.trim().is_empty() {
+            self.url = "https://example.invalid/skills".to_string();
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default, Eq, PartialEq, Serialize, Deserialize)]
+pub enum SourceKind {
+    #[serde(rename = "agentbuddy")]
+    AgentBuddy,
+    #[serde(rename = "well-known")]
+    WellKnown,
+    #[default]
+    #[serde(rename = "custom")]
+    Custom,
+}
+
+impl SourceKind {
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::AgentBuddy => "agentbuddy",
+            Self::WellKnown => "well-known",
+            Self::Custom => "custom",
         }
     }
 }
@@ -275,6 +334,7 @@ pub enum ConfigWarning {
     SchemaMigrated { from: u32, to: u32 },
     SafetyLockRestored(&'static str),
     DefaultSourceRestored,
+    SourceMigrated(String),
 }
 
 impl fmt::Display for ConfigWarning {
@@ -287,6 +347,9 @@ impl fmt::Display for ConfigWarning {
             }
             Self::SafetyLockRestored(key) => write!(formatter, "safety lock restored: {key}"),
             Self::DefaultSourceRestored => write!(formatter, "default source restored"),
+            Self::SourceMigrated(name) => {
+                write!(formatter, "source {name} migrated to bytedance-agentbuddy")
+            }
         }
     }
 }
@@ -359,7 +422,13 @@ mod tests {
         assert_eq!(config.language, Language::EnUs);
         assert!(config.safety.delete_confirmation);
         assert!(config.safety.home_delete_guard);
-        assert_eq!(config.sources[0].url, "https://skills.bytedance.net/");
+        assert_eq!(config.sources[0].name, "bytedance-agentbuddy");
+        assert_eq!(config.sources[0].kind, SourceKind::AgentBuddy);
+        assert_eq!(config.sources[0].url, "https://artifact-api.byted.org");
+        assert_eq!(
+            config.sources[0].portal_url.as_deref(),
+            Some("https://skills.bytedance.net/")
+        );
     }
 
     #[test]
@@ -393,6 +462,31 @@ mod tests {
             loaded.warnings.as_slice(),
             [ConfigWarning::ParseFailed(_)]
         ));
+    }
+
+    #[test]
+    fn legacy_skills_portal_source_migrates_to_agentbuddy_source() {
+        let config = AppConfig {
+            sources: vec![SourceSettings {
+                name: "skills.bytedance.net".to_string(),
+                kind: SourceKind::Custom,
+                url: "https://skills.bytedance.net/".to_string(),
+                portal_url: None,
+                enabled: true,
+                last_status: "ready".to_string(),
+            }],
+            ..AppConfig::default()
+        };
+
+        let (config, warnings) = config.normalized();
+
+        assert_eq!(config.sources[0].name, "bytedance-agentbuddy");
+        assert_eq!(config.sources[0].kind, SourceKind::AgentBuddy);
+        assert!(
+            warnings
+                .iter()
+                .any(|warning| matches!(warning, ConfigWarning::SourceMigrated(_)))
+        );
     }
 
     #[test]

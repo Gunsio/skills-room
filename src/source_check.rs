@@ -1,6 +1,6 @@
 use crate::{
     agentbuddy::{AgentBuddyCli, SystemCommandRunner},
-    config::SourceSettings,
+    config::{SourceKind, SourceSettings},
     source::{SourceCheck, SourceCheckKind},
 };
 
@@ -84,8 +84,13 @@ fn check_custom_source(source: &SourceSettings) -> SourceCheckReport {
 }
 
 fn is_agentbuddy_portal(source: &SourceSettings) -> bool {
-    source.name == "bytedance-agentbuddy"
-        || source.url.trim_end_matches('/') == "https://skills.bytedance.net"
+    source.kind == SourceKind::AgentBuddy
+        || source.name == "bytedance-agentbuddy"
+        || source
+            .portal_url
+            .as_deref()
+            .map(|url| url.trim_end_matches('/'))
+            == Some("https://skills.bytedance.net")
 }
 
 #[cfg(test)]

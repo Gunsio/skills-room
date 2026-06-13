@@ -1,6 +1,6 @@
 ---
 source: src/ui.rs
-assertion_line: 622
+assertion_line: 627
 expression: "render_settings_snapshot(120, 40)"
 ---
 ┌Command───────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
@@ -19,8 +19,8 @@ expression: "render_settings_snapshot(120, 40)"
 │                │  Cache                         ready  Enter clears cache state                     │s, 0 assets, 360│
 │                │  Safety                        locked  Cannot disable guard rails                  │                │
 │                │  Sources                       1 configured  Enter adds disabled source            │                │
-│                │  Source skills.bytedance.net   enabled  Enter toggles source                       │                │
-│                │  Test skills.bytedance.net     not-tested  Enter dry-runs source                   │sts with reposit│
+│                │  Source bytedance-agentbuddy   enabled  Enter toggles source                       │                │
+│                │  Test bytedance-agentbuddy     not-tested  Enter dry-runs source                   │sts with reposit│
 │                │  Save                          persist config.toml  Enter writes config            │                │
 │                │                                                                                    │                │
 │                │                                                                                    │                │
