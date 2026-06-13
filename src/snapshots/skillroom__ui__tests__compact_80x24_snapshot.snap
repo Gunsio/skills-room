@@ -1,5 +1,6 @@
 ---
 source: src/ui.rs
+assertion_line: 406
 expression: "render_snapshot(80, 24)"
 ---
 ┌Command───────────────────────────────────────────────────────────────────────┐
@@ -7,11 +8,11 @@ expression: "render_snapshot(80, 24)"
 └──────────────────────────────────────────────────────────────────────────────┘
 ┌Skills──────────────────────────────────────────┐┌Details─────────────────────┐
 │Name   Sourc Scope    State    Risk     Update  ││Name: code-review           │
-│> code curat Local    Update   Medium   1.9.2   ││Description: Review pull    │
-│  data skill Global   Active   Low      current ││requests with               │
-│  lega local Local    Error    High     blocked ││repository-local conventions│
-│  tapr local Local    Ready    None     current ││and test gates.             │
-│  web- githu Global   Ready    Low      current ││Path:                       │
+│> code curat Local    Update   Medium   1.9.2   ││Scope: Local                │
+│  data skill Global   Active   Low      current ││State: Update               │
+│  lega local Local    Error    High     blocked ││Source: curated             │
+│  tapr local Local    Ready    None     current ││Version: 1.8.0              │
+│  web- githu Global   Ready    Low      current ││Path: ~/.codex/skills/code-r│
 │                                                │└────────────────────────────┘
 │                                                │┌Stats───────────────────────┐
 │                                                ││Filters ready               │

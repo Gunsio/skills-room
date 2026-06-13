@@ -139,17 +139,14 @@ fn render_details(app: &App, frame: &mut Frame<'_>, area: ratatui::layout::Rect)
     let lines = match app.selected_skill() {
         Some(skill) => vec![
             Line::from(vec!["Name: ".bold(), skill.name.as_str().cyan()]),
-            Line::from(vec![
-                "Description: ".bold(),
-                skill.description.clone().into(),
-            ]),
+            Line::from(vec!["Scope: ".bold(), skill.scope.label().into()]),
+            Line::from(vec!["State: ".bold(), skill.state.label().into()]),
+            Line::from(vec!["Source: ".bold(), skill.source.label().into()]),
+            Line::from(vec!["Version: ".bold(), skill.version_label().into()]),
             Line::from(vec![
                 "Path: ".bold(),
                 skill.path.display().to_string().into(),
             ]),
-            Line::from(vec!["Scope: ".bold(), skill.scope.label().into()]),
-            Line::from(vec!["Version: ".bold(), skill.version_label().into()]),
-            Line::from(vec!["Source: ".bold(), skill.source.label().into()]),
             Line::from(vec!["Agents: ".bold(), agents_summary(skill).into()]),
             Line::from(vec!["Risk: ".bold(), skill.risk.label().into()]),
             Line::from(vec![
@@ -164,23 +161,33 @@ fn render_details(app: &App, frame: &mut Frame<'_>, area: ratatui::layout::Rect)
                 )
                 .into(),
             ]),
-            Line::from(vec!["Scripts: ".bold(), skill.scripts.join(", ").into()]),
+            Line::from(vec!["Scripts: ".bold(), csv_or_none(&skill.scripts).into()]),
             Line::from(vec!["Actions: ".bold(), action_summary(skill).dim()]),
             Line::from(vec![
                 "Error: ".bold(),
                 skill.error.as_deref().unwrap_or("none").into(),
             ]),
-            Line::from(vec!["Tags: ".bold(), skill.tags.join(", ").dim()]),
+            Line::from(vec![
+                "Description: ".bold(),
+                skill.description.as_str().into(),
+            ]),
+            Line::from(vec!["Tags: ".bold(), csv_or_none(&skill.tags).dim()]),
         ],
         None => vec![Line::from("No skill selected".dim())],
     };
 
     frame.render_widget(
-        Paragraph::new(lines)
-            .block(focused_block("Details", app.focus() == FocusArea::Details))
-            .wrap(Wrap { trim: false }),
+        Paragraph::new(lines).block(focused_block("Details", app.focus() == FocusArea::Details)),
         area,
     );
+}
+
+fn csv_or_none(values: &[String]) -> String {
+    if values.is_empty() {
+        "none".to_string()
+    } else {
+        values.join(", ")
+    }
 }
 
 fn render_stats(app: &App, frame: &mut Frame<'_>, area: ratatui::layout::Rect) {
