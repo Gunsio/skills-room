@@ -1,4 +1,4 @@
-use std::fmt;
+use std::{cell::RefCell, collections::BTreeMap, fmt};
 
 use crate::{
     local_inventory::{SkillRoot, load_local_inventory},
@@ -79,6 +79,108 @@ pub trait SourceAdapter {
             query.order_by.api_value(),
             query.scope.as_deref().unwrap_or("all")
         )
+    }
+}
+
+pub fn search_all_sources(
+    adapters: &[&dyn SourceAdapter],
+    query: &SourceQuery,
+    cache: &dyn SourceCache,
+) -> SourceSearchOutcome {
+    let mut records = Vec::new();
+    let mut reports = Vec::new();
+
+    for adapter in adapters {
+        let cache_key = adapter.cache_key(query);
+        match adapter.search(query) {
+            Ok(mut source_records) => {
+                cache.put(&cache_key, source_records.clone());
+                reports.push(SourceReport::ready(
+                    adapter.id(),
+                    format!("{} records", source_records.len()),
+                ));
+                records.append(&mut source_records);
+            }
+            Err(error) => {
+                if let Some(mut cached_records) = cache.get(&cache_key) {
+                    reports.push(SourceReport::cached(adapter.id(), error.to_string()));
+                    records.append(&mut cached_records);
+                } else {
+                    reports.push(SourceReport::failed(adapter.id(), error));
+                }
+            }
+        }
+    }
+
+    SourceSearchOutcome { records, reports }
+}
+
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct SourceSearchOutcome {
+    pub records: Vec<SkillRecord>,
+    pub reports: Vec<SourceReport>,
+}
+
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct SourceReport {
+    pub source_id: String,
+    pub status: SourceCheckStatus,
+    pub used_cache: bool,
+    pub message: String,
+}
+
+impl SourceReport {
+    fn ready(source_id: &str, message: impl Into<String>) -> Self {
+        Self {
+            source_id: source_id.to_string(),
+            status: SourceCheckStatus::Pass,
+            used_cache: false,
+            message: message.into(),
+        }
+    }
+
+    fn cached(source_id: &str, message: impl Into<String>) -> Self {
+        Self {
+            source_id: source_id.to_string(),
+            status: SourceCheckStatus::Warn,
+            used_cache: true,
+            message: message.into(),
+        }
+    }
+
+    fn failed(source_id: &str, error: SourceError) -> Self {
+        Self {
+            source_id: source_id.to_string(),
+            status: SourceCheckStatus::Fail,
+            used_cache: false,
+            message: error.to_string(),
+        }
+    }
+}
+
+pub trait SourceCache {
+    fn get(&self, key: &str) -> Option<Vec<SkillRecord>>;
+    fn put(&self, key: &str, records: Vec<SkillRecord>);
+}
+
+#[derive(Debug, Default)]
+pub struct MemorySourceCache {
+    entries: RefCell<BTreeMap<String, Vec<SkillRecord>>>,
+}
+
+impl MemorySourceCache {
+    pub fn new() -> Self {
+        Self::default()
+    }
+}
+
+impl SourceCache for MemorySourceCache {
+    fn get(&self, key: &str) -> Option<Vec<SkillRecord>> {
+        self.entries.borrow().get(key).cloned()
+    }
+
+    fn put(&self, key: &str, records: Vec<SkillRecord>) {
+        self.entries.borrow_mut().insert(key.to_string(), records);
     }
 }
 
@@ -358,6 +460,41 @@ mod tests {
         }
     }
 
+    #[derive(Debug)]
+    struct FailingAdapter;
+
+    impl SourceAdapter for FailingAdapter {
+        fn id(&self) -> &str {
+            "remote"
+        }
+
+        fn health(&self) -> SourceAdapterResult<Vec<SourceCheck>> {
+            Ok(Vec::new())
+        }
+
+        fn auth(&self) -> SourceAdapterResult<Vec<SourceCheck>> {
+            Ok(Vec::new())
+        }
+
+        fn schema(&self) -> SourceAdapterResult<Vec<SourceCheck>> {
+            Ok(Vec::new())
+        }
+
+        fn search(&self, _query: &SourceQuery) -> SourceAdapterResult<Vec<SkillRecord>> {
+            Err(SourceError::new(
+                SourceErrorKind::NetworkDegraded,
+                "timeout",
+            ))
+        }
+
+        fn detail(&self, _request: &SourceDetailRequest) -> SourceAdapterResult<SkillRecord> {
+            Err(SourceError::new(
+                SourceErrorKind::NetworkDegraded,
+                "timeout",
+            ))
+        }
+    }
+
     #[test]
     fn cache_key_includes_source_query_order_and_scope() {
         let mut query = SourceQuery::new("review");
@@ -440,5 +577,48 @@ mod tests {
             SourceCheckStatus::Skipped
         );
         assert_eq!(adapter.schema().unwrap()[0].status, SourceCheckStatus::Pass);
+    }
+
+    #[test]
+    fn source_manager_keeps_local_results_when_remote_fails() {
+        let local = LocalSourceAdapter::new(fixture_skills());
+        let remote = FailingAdapter;
+        let cache = MemorySourceCache::new();
+        let outcome = search_all_sources(
+            &[&local as &dyn SourceAdapter, &remote as &dyn SourceAdapter],
+            &SourceQuery::new("review"),
+            &cache,
+        );
+
+        assert!(
+            outcome
+                .records
+                .iter()
+                .any(|record| record.name == "code-review")
+        );
+        assert_eq!(outcome.reports.len(), 2);
+        assert_eq!(outcome.reports[1].status, SourceCheckStatus::Fail);
+    }
+
+    #[test]
+    fn source_manager_uses_cache_when_source_degrades() {
+        let remote = FailingAdapter;
+        let cache = MemorySourceCache::new();
+        let query = SourceQuery::new("review");
+        cache.put(
+            &remote.cache_key(&query),
+            vec![
+                fixture_skills()
+                    .into_iter()
+                    .find(|record| record.name == "code-review")
+                    .unwrap(),
+            ],
+        );
+
+        let outcome = search_all_sources(&[&remote as &dyn SourceAdapter], &query, &cache);
+
+        assert_eq!(outcome.records[0].name, "code-review");
+        assert!(outcome.reports[0].used_cache);
+        assert_eq!(outcome.reports[0].status, SourceCheckStatus::Warn);
     }
 }
