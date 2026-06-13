@@ -595,6 +595,7 @@ mod tests {
         App,
         config::{AppConfig, Language, LoadedConfig},
         skill::fixture_skills,
+        theme::ThemeRegistry,
     };
 
     #[test]
@@ -632,6 +633,38 @@ mod tests {
         );
 
         insta::assert_snapshot!(render_app_snapshot(app, 120, 40));
+    }
+
+    #[test]
+    fn all_themes_render_main_and_settings_without_panics() {
+        for theme in ThemeRegistry::all() {
+            let app = App::from_skills_with_config(
+                fixture_skills(),
+                LoadedConfig {
+                    path: PathBuf::from("skillroom/config.toml"),
+                    config: AppConfig {
+                        theme,
+                        ..AppConfig::default()
+                    },
+                    warnings: Vec::new(),
+                },
+            );
+            assert!(render_app_snapshot(app, 120, 40).contains("Skillroom"));
+
+            let mut app = App::from_skills_with_config(
+                fixture_skills(),
+                LoadedConfig {
+                    path: PathBuf::from("skillroom/config.toml"),
+                    config: AppConfig {
+                        theme,
+                        ..AppConfig::default()
+                    },
+                    warnings: Vec::new(),
+                },
+            );
+            app.open_settings();
+            assert!(render_app_snapshot(app, 120, 40).contains("Settings"));
+        }
     }
 
     fn render_snapshot(width: u16, height: u16) -> String {
