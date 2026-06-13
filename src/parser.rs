@@ -68,13 +68,12 @@ fn unquote(value: &str) -> &str {
 fn first_body_paragraph(body: &str) -> Option<String> {
     body.lines()
         .map(str::trim)
-        .filter(|line| {
+        .find(|line| {
             !line.is_empty()
                 && !line.starts_with('#')
                 && !line.starts_with("```")
                 && !line.starts_with("- ")
         })
-        .next()
         .map(ToString::to_string)
 }
 
