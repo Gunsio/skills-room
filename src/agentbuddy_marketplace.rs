@@ -255,7 +255,11 @@ fn marketplace_skill_record(
         source: Source::InternalRegistry,
         scope: scope_field(item).unwrap_or(SkillScope::Global),
         agents,
-        state: SkillState::Ready,
+        state: if installable {
+            SkillState::Installable
+        } else {
+            SkillState::RemoteOnly
+        },
         risk: RiskLevel::None,
         version,
         update: Some("remote".to_string()),
@@ -397,6 +401,7 @@ mod tests {
         assert_eq!(records.len(), 1);
         assert_eq!(records[0].name, "code-review");
         assert_eq!(records[0].source, Source::InternalRegistry);
+        assert_eq!(records[0].state, SkillState::Installable);
         assert_eq!(
             records[0].path,
             PathBuf::from("agentbuddy://skills:code-review")
@@ -448,6 +453,7 @@ mod tests {
             .unwrap();
 
         assert_eq!(record.name, "data-analysis");
+        assert_eq!(record.state, SkillState::RemoteOnly);
         assert_eq!(record.description, "Analyze data");
         assert_eq!(record.agents_count(), 1);
     }

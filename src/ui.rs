@@ -564,6 +564,11 @@ fn state_line(state: SkillState, theme: ThemePalette) -> Line<'static> {
         SkillState::LocalOnly => {
             Line::from(Span::styled("Local", Style::new().fg(theme.secondary)))
         }
+        SkillState::RemoteOnly => Line::from(Span::styled("Remote", theme.muted())),
+        SkillState::Installable => Line::from(Span::styled("Install", theme.info())),
+        SkillState::AuthError => Line::from(Span::styled("Auth", theme.error())),
+        SkillState::SchemaError => Line::from(Span::styled("Schema", theme.error())),
+        SkillState::NetworkDegraded => Line::from(Span::styled("Degraded", theme.warning())),
         SkillState::Unknown => Line::from(Span::styled("Unknown", theme.muted())),
         SkillState::Error => Line::from(Span::styled("Error", theme.error())),
     }

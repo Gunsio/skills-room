@@ -51,6 +51,11 @@ pub enum SkillState {
     UpdateAvailable,
     Installed,
     LocalOnly,
+    RemoteOnly,
+    Installable,
+    AuthError,
+    SchemaError,
+    NetworkDegraded,
     Unknown,
     Error,
 }
@@ -63,6 +68,11 @@ impl SkillState {
             Self::UpdateAvailable => "Update",
             Self::Installed => "Installed",
             Self::LocalOnly => "LocalOnly",
+            Self::RemoteOnly => "RemoteOnly",
+            Self::Installable => "Installable",
+            Self::AuthError => "AuthError",
+            Self::SchemaError => "SchemaError",
+            Self::NetworkDegraded => "Degraded",
             Self::Unknown => "Unknown",
             Self::Error => "Error",
         }

@@ -2,7 +2,7 @@ use std::fmt;
 
 use crate::{
     local_inventory::{SkillRoot, load_local_inventory},
-    skill::SkillRecord,
+    skill::{SkillRecord, SkillState},
 };
 
 #[derive(Debug, Clone, Eq, PartialEq)]
@@ -51,6 +51,17 @@ impl SourceDetailRequest {
 }
 
 pub type SourceAdapterResult<T> = Result<T, SourceError>;
+
+pub fn state_from_source_error(error: &SourceError) -> SkillState {
+    match error.kind {
+        SourceErrorKind::Auth => SkillState::AuthError,
+        SourceErrorKind::Schema => SkillState::SchemaError,
+        SourceErrorKind::NetworkDegraded | SourceErrorKind::CliMissing => {
+            SkillState::NetworkDegraded
+        }
+        SourceErrorKind::Unsupported => SkillState::Error,
+    }
+}
 
 pub trait SourceAdapter {
     fn id(&self) -> &str;
@@ -379,6 +390,25 @@ mod tests {
         assert!(SourceErrorKind::NetworkDegraded.retryable());
         assert!(!SourceErrorKind::Auth.retryable());
         assert!(!SourceErrorKind::Schema.retryable());
+    }
+
+    #[test]
+    fn source_errors_map_to_visible_skill_states() {
+        assert_eq!(
+            state_from_source_error(&SourceError::new(SourceErrorKind::Auth, "auth")),
+            SkillState::AuthError
+        );
+        assert_eq!(
+            state_from_source_error(&SourceError::new(SourceErrorKind::Schema, "schema")),
+            SkillState::SchemaError
+        );
+        assert_eq!(
+            state_from_source_error(&SourceError::new(
+                SourceErrorKind::NetworkDegraded,
+                "timeout"
+            )),
+            SkillState::NetworkDegraded
+        );
     }
 
     #[test]
