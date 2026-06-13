@@ -4,7 +4,7 @@ use color_eyre::eyre::Result;
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use ratatui::{DefaultTerminal, Frame};
 
-use crate::skill::{RiskLevel, SkillRecord, SkillScope, SkillState, fixture_skills};
+use crate::skill::{RiskLevel, SkillRecord, SkillScope, SkillState, Source, fixture_skills};
 
 #[derive(Debug)]
 pub struct App {
@@ -71,7 +71,7 @@ impl SortColumn {
 
 #[derive(Debug, Clone, Default, Eq, PartialEq)]
 pub struct FilterState {
-    pub source: Option<String>,
+    pub source: Option<Source>,
     pub scope: Option<SkillScope>,
     pub state: Option<SkillState>,
     pub risk: Option<RiskLevel>,
@@ -357,9 +357,9 @@ impl App {
 
     fn matches_filters(&self, skill: &SkillRecord) -> bool {
         let matches_query = self.search_query.is_empty()
-            || contains_case_insensitive(skill.name, &self.search_query)
-            || contains_case_insensitive(skill.source, &self.search_query)
-            || contains_case_insensitive(skill.description, &self.search_query)
+            || contains_case_insensitive(&skill.name, &self.search_query)
+            || contains_case_insensitive(skill.source.label(), &self.search_query)
+            || contains_case_insensitive(&skill.description, &self.search_query)
             || skill
                 .tags
                 .iter()
@@ -370,7 +370,7 @@ impl App {
                 .filters
                 .source
                 .as_ref()
-                .is_none_or(|source| skill.source == source)
+                .is_none_or(|source| &skill.source == source)
             && self.filters.scope.is_none_or(|scope| skill.scope == scope)
             && self.filters.state.is_none_or(|state| skill.state == state)
             && self.filters.risk.is_none_or(|risk| skill.risk == risk)
@@ -378,35 +378,36 @@ impl App {
                 .filters
                 .update
                 .as_ref()
-                .is_none_or(|update| skill.update == update)
+                .is_none_or(|update| skill.update_label() == update)
     }
 
     fn compare_skills(&self, left: &SkillRecord, right: &SkillRecord) -> std::cmp::Ordering {
         match self.sort_column {
-            SortColumn::Name => left.name.cmp(right.name),
+            SortColumn::Name => left.name.cmp(&right.name),
             SortColumn::Source => left
                 .source
-                .cmp(right.source)
-                .then(left.name.cmp(right.name)),
+                .label()
+                .cmp(right.source.label())
+                .then(left.name.cmp(&right.name)),
             SortColumn::Scope => left
                 .scope
                 .label()
                 .cmp(right.scope.label())
-                .then(left.name.cmp(right.name)),
+                .then(left.name.cmp(&right.name)),
             SortColumn::State => left
                 .state
                 .label()
                 .cmp(right.state.label())
-                .then(left.name.cmp(right.name)),
+                .then(left.name.cmp(&right.name)),
             SortColumn::Risk => left
                 .risk
                 .label()
                 .cmp(right.risk.label())
-                .then(left.name.cmp(right.name)),
+                .then(left.name.cmp(&right.name)),
             SortColumn::Update => left
-                .update
-                .cmp(right.update)
-                .then(left.name.cmp(right.name)),
+                .update_label()
+                .cmp(right.update_label())
+                .then(left.name.cmp(&right.name)),
         }
     }
 
@@ -582,7 +583,7 @@ mod tests {
     fn fixture_filters_cover_source_scope_state_risk_and_update() {
         let mut app = App::default();
 
-        app.filters.source = Some("skills.bytedance.net".to_string());
+        app.filters.source = Some(Source::InternalRegistry);
         app.filters.scope = Some(SkillScope::Global);
         app.filters.state = Some(SkillState::Active);
         app.filters.risk = Some(RiskLevel::Low);

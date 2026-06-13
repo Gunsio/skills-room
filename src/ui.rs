@@ -109,11 +109,11 @@ fn render_table(app: &App, frame: &mut Frame<'_>, area: ratatui::layout::Rect) {
 
             Row::new([
                 Cell::from(format!("{marker}{}", skill.name)),
-                Cell::from(skill.source),
+                Cell::from(skill.source.label().to_string()),
                 Cell::from(skill.scope.label()),
                 Cell::from(state_line(skill.state)),
                 Cell::from(risk_line(skill.risk)),
-                Cell::from(skill.update),
+                Cell::from(skill.update_label().to_string()),
             ])
             .style(style)
         });
@@ -138,11 +138,17 @@ fn render_table(app: &App, frame: &mut Frame<'_>, area: ratatui::layout::Rect) {
 fn render_details(app: &App, frame: &mut Frame<'_>, area: ratatui::layout::Rect) {
     let lines = match app.selected_skill() {
         Some(skill) => vec![
-            Line::from(vec!["Name: ".bold(), skill.name.cyan()]),
-            Line::from(vec!["Description: ".bold(), skill.description.into()]),
-            Line::from(vec!["Path: ".bold(), skill.path.into()]),
-            Line::from(vec!["Version: ".bold(), skill.version.into()]),
-            Line::from(vec!["Source: ".bold(), skill.source.into()]),
+            Line::from(vec!["Name: ".bold(), skill.name.as_str().cyan()]),
+            Line::from(vec![
+                "Description: ".bold(),
+                skill.description.clone().into(),
+            ]),
+            Line::from(vec![
+                "Path: ".bold(),
+                skill.path.display().to_string().into(),
+            ]),
+            Line::from(vec!["Version: ".bold(), skill.version_label().into()]),
+            Line::from(vec!["Source: ".bold(), skill.source.label().into()]),
             Line::from(vec!["Scripts: ".bold(), skill.scripts.join(", ").into()]),
             Line::from(vec!["Tags: ".bold(), skill.tags.join(", ").dim()]),
         ],
@@ -294,6 +300,9 @@ fn state_line(state: SkillState) -> Line<'static> {
         SkillState::Ready => Line::from("Ready".green()),
         SkillState::Active => Line::from("Active".cyan()),
         SkillState::UpdateAvailable => Line::from("Update".yellow()),
+        SkillState::Installed => Line::from("Installed".green()),
+        SkillState::LocalOnly => Line::from("Local".magenta()),
+        SkillState::Unknown => Line::from("Unknown".dim()),
         SkillState::Error => Line::from("Error".red()),
     }
 }
