@@ -1,6 +1,8 @@
 use std::path::PathBuf;
 
-#[derive(Debug, Clone, Eq, PartialEq)]
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
 pub enum Source {
     LocalGit,
     LocalArchive,
@@ -25,7 +27,7 @@ impl Source {
     }
 }
 
-#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Serialize, Deserialize)]
 pub enum SkillScope {
     Local,
     Global,
@@ -42,7 +44,7 @@ impl SkillScope {
     }
 }
 
-#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Serialize, Deserialize)]
 pub enum SkillState {
     Ready,
     Active,
@@ -67,7 +69,7 @@ impl SkillState {
     }
 }
 
-#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Serialize, Deserialize)]
 pub enum RiskLevel {
     None,
     Low,
@@ -86,7 +88,7 @@ impl RiskLevel {
     }
 }
 
-#[derive(Debug, Clone, Eq, PartialEq)]
+#[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
 pub struct Agent {
     pub name: String,
     pub enabled: bool,
@@ -101,14 +103,14 @@ impl Agent {
     }
 }
 
-#[derive(Debug, Clone, Default, Eq, PartialEq)]
+#[derive(Debug, Clone, Default, Eq, PartialEq, Serialize, Deserialize)]
 pub struct CommandPlan {
     pub install: Vec<String>,
     pub update: Vec<String>,
     pub remove: Vec<String>,
 }
 
-#[derive(Debug, Clone, Default, Eq, PartialEq)]
+#[derive(Debug, Clone, Default, Eq, PartialEq, Serialize, Deserialize)]
 pub struct SkillStats {
     pub files: usize,
     pub directories: usize,
@@ -118,7 +120,7 @@ pub struct SkillStats {
     pub modified_unix_seconds: Option<u64>,
 }
 
-#[derive(Debug, Clone, Eq, PartialEq)]
+#[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
 pub struct SkillRecord {
     pub name: String,
     pub source: Source,
