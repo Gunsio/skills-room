@@ -19,6 +19,8 @@ pub struct App {
     sort_ascending: bool,
     show_help: bool,
     output: Vec<String>,
+    stream_tick: usize,
+    stream_cursor: usize,
 }
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
@@ -139,6 +141,8 @@ impl Default for App {
                 "[skill] Loaded fixture skills from local storage.".to_string(),
                 "[prompt] Ready for command.".to_string(),
             ],
+            stream_tick: 0,
+            stream_cursor: 0,
         }
     }
 }
@@ -148,6 +152,7 @@ impl App {
         while !self.should_quit {
             terminal.draw(|frame| self.render(frame))?;
             self.handle_events()?;
+            self.tick();
         }
 
         Ok(())
@@ -405,6 +410,35 @@ impl App {
                 .then(left.name.cmp(right.name)),
         }
     }
+
+    fn tick(&mut self) {
+        self.stream_tick = self.stream_tick.saturating_add(1);
+        if self.stream_tick % Self::STREAM_INTERVAL_TICKS != 0 {
+            return;
+        }
+
+        let message = Self::STREAM_MESSAGES[self.stream_cursor % Self::STREAM_MESSAGES.len()];
+        self.stream_cursor = self.stream_cursor.saturating_add(1);
+        self.push_output(message);
+    }
+
+    fn push_output(&mut self, message: &str) {
+        self.output.push(message.to_string());
+        let overflow = self.output.len().saturating_sub(Self::OUTPUT_LIMIT);
+        if overflow > 0 {
+            self.output.drain(0..overflow);
+        }
+    }
+
+    const OUTPUT_LIMIT: usize = 8;
+    const STREAM_INTERVAL_TICKS: usize = 4;
+    const STREAM_MESSAGES: [&'static str; 5] = [
+        "[scan] Checked local skill manifests.",
+        "[scan] Indexed source: skills.bytedance.net.",
+        "[sort] Applied fixture sort state.",
+        "[filter] Applied fixture filters.",
+        "[prompt] Ready for keyboard input.",
+    ];
 }
 
 fn contains_case_insensitive(haystack: &str, needle: &str) -> bool {
@@ -558,5 +592,17 @@ mod tests {
         let visible = app.visible_skills();
         assert_eq!(visible.len(), 1);
         assert_eq!(visible[0].1.name, "data-analysis");
+    }
+
+    #[test]
+    fn streaming_output_is_bounded() {
+        let mut app = App::default();
+
+        for _ in 0..64 {
+            app.tick();
+        }
+
+        assert_eq!(app.output().len(), App::OUTPUT_LIMIT);
+        assert!(app.output().last().unwrap().starts_with("["));
     }
 }
