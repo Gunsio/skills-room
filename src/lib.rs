@@ -2,6 +2,7 @@ pub mod cache;
 pub mod cli;
 pub mod inventory;
 pub mod loaders;
+pub mod local_inventory;
 pub mod parser;
 pub mod scan;
 
@@ -19,5 +20,5 @@ pub fn run() -> color_eyre::Result<()> {
     let terminal = ratatui::init();
     let _guard = terminal::TerminalGuard;
 
-    App::default().run(terminal)
+    App::load_local_or_fixture().run(terminal)
 }

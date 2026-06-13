@@ -130,6 +130,15 @@ impl Default for App {
 }
 
 impl App {
+    pub fn load_local_or_fixture() -> Self {
+        let skills = crate::local_inventory::load_local_inventory_from_env();
+        if skills.is_empty() {
+            Self::default()
+        } else {
+            Self::from_skills(skills)
+        }
+    }
+
     pub fn from_skills(skills: Vec<SkillRecord>) -> Self {
         let mut output = vec![
             "[system] Skillroom daemon started.".to_string(),
