@@ -125,9 +125,31 @@ impl FocusArea {
 
 impl Default for App {
     fn default() -> Self {
+        Self::from_skills(fixture_skills())
+    }
+}
+
+impl App {
+    pub fn from_skills(skills: Vec<SkillRecord>) -> Self {
+        let mut output = vec![
+            "[system] Skillroom daemon started.".to_string(),
+            format!(
+                "[skill] Loaded {} skills from local inventory.",
+                skills.len()
+            ),
+            "[prompt] Ready for command.".to_string(),
+        ];
+
+        output.extend(skills.iter().filter_map(|skill| {
+            skill
+                .error
+                .as_ref()
+                .map(|error| format!("[error] {}: {error}", skill.name))
+        }));
+
         Self {
             should_quit: false,
-            skills: fixture_skills(),
+            skills,
             selected: 0,
             focus: FocusArea::Table,
             input_mode: InputMode::Normal,
@@ -136,18 +158,11 @@ impl Default for App {
             sort_column: SortColumn::Name,
             sort_ascending: true,
             show_help: false,
-            output: vec![
-                "[system] Skillroom daemon started.".to_string(),
-                "[skill] Loaded fixture skills from local storage.".to_string(),
-                "[prompt] Ready for command.".to_string(),
-            ],
+            output,
             stream_tick: 0,
             stream_cursor: 0,
         }
     }
-}
-
-impl App {
     pub fn run(mut self, mut terminal: DefaultTerminal) -> Result<()> {
         while !self.should_quit {
             terminal.draw(|frame| self.render(frame))?;
@@ -604,5 +619,21 @@ mod tests {
 
         assert_eq!(app.output().len(), App::OUTPUT_LIMIT);
         assert!(app.output().last().unwrap().starts_with("["));
+    }
+
+    #[test]
+    fn skill_errors_enter_output_without_blocking_list() {
+        let mut skills = fixture_skills();
+        skills[0].error = Some("parse failed".to_string());
+        skills[0].state = SkillState::Error;
+
+        let app = App::from_skills(skills);
+
+        assert_eq!(app.skills().len(), 5);
+        assert!(
+            app.output()
+                .iter()
+                .any(|line| line.contains("[error]") && line.contains("parse failed"))
+        );
     }
 }
