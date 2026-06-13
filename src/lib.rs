@@ -1,4 +1,5 @@
 mod app;
+mod layout;
 mod terminal;
 
 pub use app::App;

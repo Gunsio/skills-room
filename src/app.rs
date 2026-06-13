@@ -2,7 +2,9 @@ use std::time::Duration;
 
 use color_eyre::eyre::Result;
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
-use ratatui::{DefaultTerminal, Frame, widgets::Paragraph};
+use ratatui::{DefaultTerminal, Frame, layout::Alignment, widgets::Paragraph};
+
+use crate::layout::{AppLayout, too_small_message};
 
 #[derive(Debug, Default)]
 pub struct App {
@@ -20,9 +22,16 @@ impl App {
     }
 
     fn render(&self, frame: &mut Frame<'_>) {
+        let area = frame.area();
+        let Some(layout) = AppLayout::calculate(area) else {
+            frame.render_widget(Paragraph::new(too_small_message(area)).centered(), area);
+            return;
+        };
+
         frame.render_widget(
-            Paragraph::new("Skillroom TUI initializing... press q to quit"),
-            frame.area(),
+            Paragraph::new(format!("Skillroom TUI [{:?}]", layout.tier))
+                .alignment(Alignment::Center),
+            layout.search,
         );
     }
 
