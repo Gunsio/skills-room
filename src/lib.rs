@@ -1,4 +1,5 @@
 pub mod cli;
+pub mod inventory;
 pub mod loaders;
 pub mod parser;
 pub mod scan;
