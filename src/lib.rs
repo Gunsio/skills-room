@@ -4,7 +4,7 @@ pub mod skill;
 mod terminal;
 mod ui;
 
-pub use app::App;
+pub use app::{App, FocusArea};
 
 pub fn run() -> color_eyre::Result<()> {
     color_eyre::install()?;

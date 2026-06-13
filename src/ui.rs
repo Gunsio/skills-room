@@ -7,7 +7,7 @@ use ratatui::{
 };
 
 use crate::{
-    app::App,
+    app::{App, FocusArea},
     layout::{AppLayout, too_small_message},
     skill::{RiskLevel, SkillState},
 };
@@ -35,11 +35,13 @@ fn render_search(app: &App, frame: &mut Frame<'_>, area: ratatui::layout::Rect) 
         " Skillroom ".bold().cyan(),
         format!("{} skills ", app.skills().len()).dim(),
         "[/] Search skills...".dim(),
+        " focus=".dim(),
+        app.focus().label().cyan(),
     ]);
 
     frame.render_widget(
         Paragraph::new(line)
-            .block(Block::bordered().title("Command"))
+            .block(focused_block("Command", app.focus() == FocusArea::Search))
             .alignment(Alignment::Left),
         area,
     );
@@ -90,7 +92,7 @@ fn render_table(app: &App, frame: &mut Frame<'_>, area: ratatui::layout::Rect) {
         ],
     )
     .header(header)
-    .block(Block::bordered().title("Skills"));
+    .block(focused_block("Skills", app.focus() == FocusArea::Table));
 
     frame.render_widget(table, area);
 }
@@ -111,7 +113,7 @@ fn render_details(app: &App, frame: &mut Frame<'_>, area: ratatui::layout::Rect)
 
     frame.render_widget(
         Paragraph::new(lines)
-            .block(Block::bordered().title("Details"))
+            .block(focused_block("Details", app.focus() == FocusArea::Details))
             .wrap(Wrap { trim: false }),
         area,
     );
@@ -136,6 +138,22 @@ fn render_stats(app: &App, frame: &mut Frame<'_>, area: ratatui::layout::Rect) {
         .count();
 
     let lines = vec![
+        Line::from(vec![
+            "Filters ".dim(),
+            if app.focus() == FocusArea::Filters {
+                "focused".cyan()
+            } else {
+                "ready".dim()
+            },
+        ]),
+        Line::from(vec![
+            "Settings ".dim(),
+            if app.focus() == FocusArea::Settings {
+                "focused".cyan()
+            } else {
+                "placeholder".dim()
+            },
+        ]),
         Line::from(vec!["Total ".dim(), total.to_string().bold()]),
         Line::from(vec!["Local ".dim(), local.to_string().cyan()]),
         Line::from(vec!["Updates ".dim(), updates.to_string().yellow()]),
@@ -143,7 +161,10 @@ fn render_stats(app: &App, frame: &mut Frame<'_>, area: ratatui::layout::Rect) {
     ];
 
     frame.render_widget(
-        Paragraph::new(lines).block(Block::bordered().title("Stats")),
+        Paragraph::new(lines).block(focused_block(
+            "Stats",
+            matches!(app.focus(), FocusArea::Filters | FocusArea::Settings),
+        )),
         area,
     );
 }
@@ -196,4 +217,14 @@ fn risk_line(risk: RiskLevel) -> Line<'static> {
         RiskLevel::Medium => Line::from("Medium".yellow()),
         RiskLevel::High => Line::from("High".red().bold()),
     }
+}
+
+fn focused_block(title: &'static str, focused: bool) -> Block<'static> {
+    let border_style = if focused {
+        Style::new().cyan()
+    } else {
+        Style::new().dim()
+    };
+
+    Block::bordered().title(title).border_style(border_style)
 }
