@@ -502,7 +502,7 @@ fn render_action_confirmation(
         return;
     };
     let plan = &confirmation.plan;
-    let popup = centered_rect(area, 74, 62);
+    let popup = centered_rect(area, 74, 80);
     let agents = if plan.agents.is_empty() {
         "none".to_string()
     } else {
@@ -548,8 +548,14 @@ fn render_action_confirmation(
             app.text(I18nKey::ConfirmSkipped),
             theme.label(),
         )));
-        for skipped in &plan.skipped {
+        for skipped in plan.skipped.iter().take(3) {
             lines.push(Line::from(Span::styled(skipped.clone(), theme.muted())));
+        }
+        if plan.skipped.len() > 3 {
+            lines.push(Line::from(Span::styled(
+                format!("... {} more skipped", plan.skipped.len() - 3),
+                theme.muted(),
+            )));
         }
     }
 
