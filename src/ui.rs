@@ -17,7 +17,7 @@ use crate::{
 
 pub fn render(app: &App, frame: &mut Frame<'_>) {
     let area = frame.area();
-    let Some(layout) = AppLayout::calculate(area, app.detail_zoom_level()) else {
+    let Some(layout) = AppLayout::calculate(area) else {
         frame.render_widget(
             Paragraph::new(too_small_message(area)).alignment(Alignment::Center),
             area,
@@ -29,8 +29,7 @@ pub fn render(app: &App, frame: &mut Frame<'_>) {
 
     render_search(app, frame, layout.search, theme);
     render_filters(app, frame, layout.filters, theme);
-    render_table(app, frame, layout.table, theme);
-    render_details(app, frame, layout.details, theme);
+    render_body(app, frame, &layout, theme);
     render_stats(app, frame, layout.stats, theme);
     if layout.output.height > 0 {
         render_output(app, frame, layout.output, theme);
@@ -47,6 +46,19 @@ pub fn render(app: &App, frame: &mut Frame<'_>) {
 
     if app.pending_action().is_some() {
         render_action_confirmation(app, frame, area, theme);
+    }
+}
+
+fn render_body(app: &App, frame: &mut Frame<'_>, layout: &AppLayout, theme: ThemePalette) {
+    match app.zoomed_focus() {
+        Some(FocusArea::Table) => render_table(app, frame, layout.body, theme),
+        Some(FocusArea::Details) => render_details(app, frame, layout.body, theme),
+        Some(FocusArea::Search) => render_search(app, frame, layout.body, theme),
+        Some(FocusArea::Filters) => render_filters(app, frame, layout.body, theme),
+        Some(FocusArea::Settings) | None => {
+            render_table(app, frame, layout.table, theme);
+            render_details(app, frame, layout.details, theme);
+        }
     }
 }
 
@@ -168,8 +180,7 @@ fn filter_scope_label(app: &App) -> &'static str {
 
 fn has_active_filters(app: &App) -> bool {
     let filters = app.filters();
-    app.active_space_label().is_some()
-        || !app.search_query().is_empty()
+    !app.search_query().is_empty()
         || filters.source.is_some()
         || filters.local_only
         || filters.scope.is_some()
@@ -182,15 +193,8 @@ fn filter_summary(app: &App) -> Line<'static> {
     let mut spans = Vec::new();
     let filters = app.filters();
 
-    if let Some(space) = app.active_space_label() {
-        push_filter_part(&mut spans, "Space", space.to_string());
-    }
     if !app.search_query().is_empty() {
-        spans.push(Span::raw("Search "));
-        spans.push(Span::styled(
-            app.search_query().to_string(),
-            app.theme().info(),
-        ));
+        push_filter_part(&mut spans, "Search", app.search_query().to_string());
     }
     if filters.source.is_some() {
         push_filter_part(&mut spans, "Source", app.source_filter_label());
@@ -230,6 +234,13 @@ fn filter_summary(app: &App) -> Line<'static> {
                 .risk
                 .map(|risk| risk.label().to_string())
                 .unwrap_or_default(),
+        );
+    }
+    if filters.update.is_some() {
+        push_filter_part(
+            &mut spans,
+            "Update",
+            filters.update.as_ref().cloned().unwrap_or_default(),
         );
     }
 
@@ -607,10 +618,10 @@ fn detail_lines(
             Span::styled("◇ ", theme.title()),
             Span::styled(skill.name.clone(), theme.info()),
         ]),
-        Line::from(description_preview(skill, app.detail_zoom_level())),
+        Line::from(description_preview(skill, app.details_fullscreen())),
     ];
 
-    if app.detail_full() {
+    if app.details_fullscreen() {
         lines.extend(full_detail_lines(app, skill, theme));
         return lines;
     }
@@ -635,44 +646,11 @@ fn detail_lines(
         ),
     ]);
 
-    if !app.detail_expanded() {
-        lines.push(Line::from(""));
-        lines.push(Line::from(vec![
-            Span::styled("+ ", theme.title()),
-            Span::styled("expand details", theme.muted()),
-            Span::styled("  - ", theme.title()),
-            Span::styled("shrink", theme.muted()),
-        ]));
-        return lines;
-    }
-
-    lines.extend([
-        Line::from(""),
-        detail_section("More", theme),
-        detail_pair(app.text(I18nKey::DetailSource), skill.source.label(), theme),
-        detail_pair(app.text(I18nKey::DetailScope), skill.scope.label(), theme),
-        detail_pair(
-            "Space: ",
-            tag_value(skill, "space:").unwrap_or("none"),
-            theme,
-        ),
-        detail_pair(
-            app.text(I18nKey::DetailAgents),
-            agents_summary(skill),
-            theme,
-        ),
-        detail_pair("Repository: ", repository_summary(skill), theme),
-        detail_pair("Updated: ", modified_summary(skill), theme),
-        detail_pair(
-            app.text(I18nKey::DetailPath),
-            skill.path.display().to_string(),
-            theme,
-        ),
-    ]);
-
     lines.push(Line::from(vec![
         Span::styled("+ ", theme.title()),
-        Span::styled("full audit fields", theme.muted()),
+        Span::styled("fullscreen details", theme.muted()),
+        Span::styled("  - ", theme.title()),
+        Span::styled("restore", theme.muted()),
     ]));
 
     lines
@@ -704,6 +682,11 @@ fn full_detail_lines(
         detail_pair(
             "Owner/Access: ",
             format!("{} | {}", owner_summary(skill), access_summary(skill)),
+            theme,
+        ),
+        detail_pair(
+            app.text(I18nKey::DetailAgents),
+            agents_summary(skill),
             theme,
         ),
         Line::from(""),
@@ -863,12 +846,8 @@ fn version_summary(skill: &crate::skill::SkillRecord) -> String {
     parts.join(" ")
 }
 
-fn description_preview(skill: &crate::skill::SkillRecord, detail_zoom: u8) -> String {
-    let limit = match detail_zoom {
-        0 => 240,
-        1 => 180,
-        _ => 120,
-    };
+fn description_preview(skill: &crate::skill::SkillRecord, fullscreen: bool) -> String {
+    let limit = if fullscreen { 800 } else { 240 };
     truncate_text(&skill.description, limit)
 }
 
@@ -1321,7 +1300,8 @@ fn render_help(app: &App, frame: &mut Frame<'_>, area: ratatui::layout::Rect, th
                     ("enter/l", "details"),
                     ("s", "spaces"),
                     ("h", h_hint),
-                    ("+/-", "zoom"),
+                    ("+", "full"),
+                    ("-", "back"),
                 ],
                 key_style,
                 text_style,
@@ -1378,7 +1358,8 @@ fn render_help(app: &App, frame: &mut Frame<'_>, area: ratatui::layout::Rect, th
                     ("U", "update all"),
                     ("x", "remove"),
                     ("y", "copy path"),
-                    ("+/-", "detail zoom"),
+                    ("+", "full"),
+                    ("-", "back"),
                     (",", "settings"),
                 ],
                 key_style,
@@ -1428,6 +1409,7 @@ fn render_space_help(frame: &mut Frame<'_>, area: ratatui::layout::Rect, theme: 
                     ("enter/l", "open"),
                     ("h", "skills"),
                     ("s", "skills"),
+                    ("+", "full"),
                     (",", "settings"),
                 ],
                 key_style,
@@ -1467,6 +1449,8 @@ fn render_space_help(frame: &mut Frame<'_>, area: ratatui::layout::Rect, theme: 
                 [
                     ("h", "skills"),
                     ("s", "skills"),
+                    ("+", "full"),
+                    ("-", "back"),
                     (",", "settings"),
                     ("?", "help"),
                 ],
@@ -1753,7 +1737,7 @@ mod tests {
     use super::*;
     use crate::{
         App,
-        config::{AppConfig, Language, LoadedConfig},
+        config::{AppConfig, Language, LoadedConfig, SpaceSettings},
         skill::fixture_skills,
         theme::ThemeRegistry,
     };
@@ -1865,17 +1849,44 @@ mod tests {
     }
 
     #[test]
-    fn detail_low_value_fields_appear_after_full_zoom() {
+    fn detail_low_value_fields_appear_after_detail_fullscreen() {
         let normal = render_app_snapshot(App::default(), 120, 40);
         assert!(normal.contains("Primary"));
         assert!(!normal.contains("Audit"));
 
         let mut app = App::default();
-        app.set_detail_zoom_for_test(2);
+        app.set_zoomed_focus_for_test(Some(FocusArea::Details));
         let expanded = render_app_snapshot(app, 120, 40);
 
         assert!(expanded.contains("Audit"));
         assert!(expanded.contains("Commands:"));
+    }
+
+    #[test]
+    fn active_space_is_context_not_a_filter() {
+        let app = App::from_skills_with_config(
+            fixture_skills(),
+            LoadedConfig {
+                path: PathBuf::from("skillroom/config.toml"),
+                config: AppConfig {
+                    active_space: Some("qianchuan-fe".to_string()),
+                    spaces: vec![SpaceSettings::qianchuan_fe()],
+                    ..AppConfig::default()
+                },
+                warnings: Vec::new(),
+            },
+        );
+
+        let snapshot = render_app_snapshot(app, 120, 40);
+
+        assert!(snapshot.lines().take(4).any(|line| line.contains("None")));
+        assert!(snapshot.contains("Space qianchuan/fe"));
+        assert!(
+            !snapshot
+                .lines()
+                .take(4)
+                .any(|line| line.contains("qianchuan/fe"))
+        );
     }
 
     #[test]

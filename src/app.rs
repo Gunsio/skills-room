@@ -43,7 +43,7 @@ pub struct App {
     i18n: I18nCatalog,
     settings: SettingsState,
     remote_sources_enabled: bool,
-    detail_zoom: u8,
+    zoomed_focus: Option<FocusArea>,
 }
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
@@ -242,7 +242,7 @@ impl App {
             i18n,
             settings,
             remote_sources_enabled: false,
-            detail_zoom: 0,
+            zoomed_focus: None,
         }
     }
 
@@ -320,8 +320,9 @@ impl App {
                 self.show_help = !self.show_help;
             }
             (KeyCode::Char('R'), _) => self.refresh_inventory(),
-            (KeyCode::Char('+') | KeyCode::Char('='), _) => self.increase_detail_zoom(),
-            (KeyCode::Char('-'), _) => self.decrease_detail_zoom(),
+            (KeyCode::Esc, _) if self.zoomed_focus.is_some() => self.restore_zoom(),
+            (KeyCode::Char('+') | KeyCode::Char('='), _) => self.zoom_current_panel(),
+            (KeyCode::Char('-'), _) => self.restore_zoom(),
             (KeyCode::Char('a'), _) => self.clear_filters(),
             (KeyCode::Char('f'), _) => self.cycle_source_filter(),
             (KeyCode::Char('i'), _) => self.toggle_local_filter(),
@@ -332,17 +333,18 @@ impl App {
             (KeyCode::Char('U'), _) => self.open_action(ActionKind::UpdateAll),
             (KeyCode::Char('x'), _) => self.open_action(ActionKind::Remove),
             (KeyCode::Char('h'), _) if self.focus == FocusArea::Details => {
-                self.focus = FocusArea::Table;
+                self.restore_zoom_if_active();
+                self.set_focus(FocusArea::Table);
                 self.push_output("[detail] Returned to skills list.");
             }
             (KeyCode::Char('h'), _) => self.open_action(ActionKind::OpenPath),
             (KeyCode::Char('y'), _) => self.open_action(ActionKind::CopyPath),
             (KeyCode::Enter | KeyCode::Char('l'), _) => self.select_current_skill(),
             (KeyCode::Tab, KeyModifiers::SHIFT) => {
-                self.focus = self.focus.previous();
+                self.previous_focus();
             }
             (KeyCode::Tab, _) => {
-                self.focus = self.focus.next();
+                self.next_focus();
             }
             (KeyCode::Char('s'), _) => self.open_space_list(),
             (KeyCode::Char('S'), _) => {
@@ -404,6 +406,9 @@ impl App {
             (KeyCode::Char('?'), _) => self.show_help = !self.show_help,
             (KeyCode::Char(','), _) => self.open_settings(),
             (KeyCode::Char('/'), _) => self.enter_search_mode(),
+            (KeyCode::Char('+') | KeyCode::Char('='), _) => self.zoom_current_panel(),
+            (KeyCode::Char('-'), _) => self.restore_zoom(),
+            (KeyCode::Esc, _) if self.zoomed_focus.is_some() => self.restore_zoom(),
             (KeyCode::Esc | KeyCode::Char('h') | KeyCode::Char('s'), _) => {
                 self.close_space_list(false);
             }
@@ -424,7 +429,7 @@ impl App {
             KeyCode::Esc => {
                 if self.search_query.is_empty() {
                     self.input_mode = InputMode::Normal;
-                    self.focus = FocusArea::Table;
+                    self.set_focus(FocusArea::Table);
                 } else {
                     self.search_query.clear();
                     self.clamp_selection();
@@ -439,7 +444,7 @@ impl App {
                     self.clamp_selection();
                 }
                 self.input_mode = InputMode::Normal;
-                self.focus = FocusArea::Table;
+                self.set_focus(FocusArea::Table);
             }
             KeyCode::Backspace => {
                 self.search_query.pop();
@@ -458,7 +463,7 @@ impl App {
 
     fn enter_search_mode(&mut self) {
         self.input_mode = InputMode::Search;
-        self.focus = FocusArea::Search;
+        self.set_focus(FocusArea::Search);
         self.show_help = false;
     }
 
@@ -573,7 +578,7 @@ impl App {
         };
         let name = skill.name.clone();
         let source = skill.source.label().to_string();
-        self.focus = FocusArea::Details;
+        self.set_focus(FocusArea::Details);
         self.push_output(&format!("[select] {name} selected; source={source}."));
     }
 
@@ -585,7 +590,7 @@ impl App {
         self.space_selected = active_space_index(&self.config);
         self.search_query.clear();
         self.input_mode = InputMode::Normal;
-        self.focus = FocusArea::Table;
+        self.set_focus(FocusArea::Table);
         self.clamp_selection();
         self.push_output("[space] Showing Space list.");
     }
@@ -594,7 +599,7 @@ impl App {
         self.list_mode = ListMode::Skills;
         self.search_query.clear();
         self.input_mode = InputMode::Normal;
-        self.focus = FocusArea::Table;
+        self.set_focus(FocusArea::Table);
         self.clamp_selection();
         if saved {
             self.push_output("[space] Applied Space selection.");
@@ -650,7 +655,7 @@ impl App {
         self.search_query.clear();
         self.filters = FilterState::default();
         self.input_mode = InputMode::Normal;
-        self.focus = FocusArea::Table;
+        self.set_focus(FocusArea::Table);
         self.clamp_selection();
         self.push_output("[filter] Reset all filters.");
     }
@@ -829,7 +834,8 @@ impl App {
 
     pub(crate) fn open_settings(&mut self) {
         self.settings = SettingsState::open(self.config.clone());
-        self.focus = FocusArea::Settings;
+        self.zoomed_focus = None;
+        self.set_focus(FocusArea::Settings);
         self.input_mode = InputMode::Normal;
         self.show_help = false;
         self.push_output("[settings] Opened settings.");
@@ -837,7 +843,7 @@ impl App {
 
     fn close_settings(&mut self, saved: bool) {
         self.settings.open = false;
-        self.focus = FocusArea::Table;
+        self.set_focus(FocusArea::Table);
         if saved {
             self.push_output("[settings] Saved settings.");
         } else {
@@ -1060,21 +1066,17 @@ impl App {
             .map(|(_, skill)| *skill)
     }
 
-    pub(crate) fn detail_zoom_level(&self) -> u8 {
-        self.detail_zoom
+    pub(crate) fn zoomed_focus(&self) -> Option<FocusArea> {
+        self.zoomed_focus
     }
 
-    pub(crate) fn detail_expanded(&self) -> bool {
-        self.detail_zoom > 0
-    }
-
-    pub(crate) fn detail_full(&self) -> bool {
-        self.detail_zoom > 1
+    pub(crate) fn details_fullscreen(&self) -> bool {
+        self.zoomed_focus == Some(FocusArea::Details)
     }
 
     #[cfg(test)]
-    pub(crate) fn set_detail_zoom_for_test(&mut self, detail_zoom: u8) {
-        self.detail_zoom = detail_zoom.min(2);
+    pub(crate) fn set_zoomed_focus_for_test(&mut self, focus: Option<FocusArea>) {
+        self.zoomed_focus = focus;
     }
 
     pub(crate) fn selected_space_row(&self) -> Option<SpaceListRow> {
@@ -1399,26 +1401,36 @@ impl App {
         }
     }
 
-    fn increase_detail_zoom(&mut self) {
-        let before = self.detail_zoom;
-        self.detail_zoom = self.detail_zoom.saturating_add(1).min(2);
-        if self.detail_zoom != before {
-            self.push_output(&format!(
-                "[detail] Zoom {}.",
-                detail_zoom_label(self.detail_zoom)
-            ));
+    fn set_focus(&mut self, focus: FocusArea) {
+        self.focus = focus;
+        if self.zoomed_focus.is_some() {
+            self.zoomed_focus = Some(focus);
         }
     }
 
-    fn decrease_detail_zoom(&mut self) {
-        let before = self.detail_zoom;
-        self.detail_zoom = self.detail_zoom.saturating_sub(1);
-        if self.detail_zoom != before {
-            self.push_output(&format!(
-                "[detail] Zoom {}.",
-                detail_zoom_label(self.detail_zoom)
-            ));
+    fn next_focus(&mut self) {
+        self.set_focus(self.focus.next());
+    }
+
+    fn previous_focus(&mut self) {
+        self.set_focus(self.focus.previous());
+    }
+
+    fn zoom_current_panel(&mut self) {
+        self.zoomed_focus = Some(self.focus);
+        self.push_output(&format!("[zoom] {} fullscreen.", self.focus.label()));
+    }
+
+    fn restore_zoom(&mut self) {
+        if self.restore_zoom_if_active() {
+            self.push_output("[zoom] Restored panel layout.");
+        } else {
+            self.push_output("[zoom] No fullscreen panel active.");
         }
+    }
+
+    fn restore_zoom_if_active(&mut self) -> bool {
+        self.zoomed_focus.take().is_some()
     }
 
     fn available_sources(&self) -> Vec<Source> {
@@ -1606,14 +1618,6 @@ impl App {
         "[status] Details panel ready.",
         "[prompt] Ready for keyboard input.",
     ];
-}
-
-fn detail_zoom_label(level: u8) -> &'static str {
-    match level {
-        0 => "normal",
-        1 => "wide",
-        _ => "full",
-    }
 }
 
 fn next_cache_ttl(current: u64) -> u64 {
@@ -2178,26 +2182,29 @@ mod tests {
     }
 
     #[test]
-    fn plus_minus_resize_detail_panel_like_lazygit() {
+    fn plus_minus_fullscreen_current_panel_like_moonbox() {
         let mut app = App::default();
 
-        assert_eq!(app.detail_zoom_level(), 0);
+        assert_eq!(app.zoomed_focus(), None);
 
         app.handle_key(KeyEvent::from(KeyCode::Char('+')));
-        assert_eq!(app.detail_zoom_level(), 1);
-        assert!(app.detail_expanded());
+        assert_eq!(app.zoomed_focus(), Some(FocusArea::Table));
 
-        app.handle_key(KeyEvent::from(KeyCode::Char('=')));
-        assert_eq!(app.detail_zoom_level(), 2);
-        assert!(app.detail_full());
+        app.handle_key(KeyEvent::from(KeyCode::Tab));
+        assert_eq!(app.focus(), FocusArea::Search);
+        assert_eq!(app.zoomed_focus(), Some(FocusArea::Search));
+
+        app.handle_key(KeyEvent::from(KeyCode::Enter));
+        assert_eq!(app.focus(), FocusArea::Details);
+        assert_eq!(app.zoomed_focus(), Some(FocusArea::Details));
+
+        app.handle_key(KeyEvent::from(KeyCode::Char('-')));
+        assert_eq!(app.zoomed_focus(), None);
 
         app.handle_key(KeyEvent::from(KeyCode::Char('+')));
-        assert_eq!(app.detail_zoom_level(), 2);
-
-        app.handle_key(KeyEvent::from(KeyCode::Char('-')));
-        assert_eq!(app.detail_zoom_level(), 1);
-        app.handle_key(KeyEvent::from(KeyCode::Char('-')));
-        assert_eq!(app.detail_zoom_level(), 0);
+        assert_eq!(app.zoomed_focus(), Some(FocusArea::Details));
+        app.handle_key(KeyEvent::from(KeyCode::Esc));
+        assert_eq!(app.zoomed_focus(), None);
     }
 
     #[test]

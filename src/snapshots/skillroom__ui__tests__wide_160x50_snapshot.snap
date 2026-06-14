@@ -1,6 +1,5 @@
 ---
 source: src/ui.rs
-assertion_line: 1709
 expression: "render_snapshot(160, 50)"
 ---
 ╭──────────────────────────────────────────────────────────────────────────────────────────────────────────────╮╭Filters───────────────────────────────────────╮
@@ -20,8 +19,8 @@ expression: "render_snapshot(160, 50)"
 │                                                                                                              ││State: Update                                 │
 │                                                                                                              ││Risk: Medium                                  │
 │                                                                                                              ││Actions: update, remove                       │
+│                                                                                                              ││+ fullscreen details  - restore               │
 │                                                                                                              ││                                              │
-│                                                                                                              ││+ expand details  - shrink                    │
 │                                                                                                              ││                                              │
 │                                                                                                              ││                                              │
 │                                                                                                              ││                                              │
@@ -51,4 +50,4 @@ Space none | Remote scope local only | Filter none | Source all | Skill scope al
 General   : q: quit R: refresh tab: switch focus /: search esc: clear search enter/l: details s: spaces
 Navigation: j/↓: cursor down k/↑: cursor up PageUp: prev page PageDown: next page g: go to top G: go to bottom
 Filter    : a: all f: source i: local o: updates v: active
-Commands  : h: open path S: sort t: install u: update U: update all x: remove y: copy path +/-: detail zoom ,: settings
+Commands  : h: open path S: sort t: install u: update U: update all x: remove y: copy path +: full -: back ,: settings
