@@ -878,17 +878,6 @@ impl App {
                 self.settings.draft.safety.home_delete_guard = true;
                 self.push_output("[settings] Safety locks remain enabled.");
             }
-            SettingsAction::Space => {
-                self.settings.draft.active_space = None;
-                self.push_output("[settings] Space -> none.");
-            }
-            SettingsAction::SpaceChoice(index) => {
-                if let Some(space) = self.settings.draft.spaces.get(index) {
-                    let label = space.label.clone();
-                    self.settings.draft.active_space = Some(space.id.clone());
-                    self.push_output(&format!("[settings] Space -> {label}."));
-                }
-            }
             SettingsAction::SourceAdd => {
                 let source = if self
                     .settings
@@ -1193,11 +1182,7 @@ impl App {
             SettingsAction::CacheTtl,
             SettingsAction::CacheClear,
             SettingsAction::Safety,
-            SettingsAction::Space,
         ];
-        for index in 0..self.settings.draft.spaces.len() {
-            actions.push(SettingsAction::SpaceChoice(index));
-        }
         actions.push(SettingsAction::SourceAdd);
         for index in 0..self.settings.draft.sources.len() {
             actions.push(SettingsAction::SourceToggle(index));
@@ -1245,32 +1230,6 @@ impl App {
                 ),
                 self.text(I18nKey::HintSafety),
             ),
-            SettingsAction::Space => SettingsRow::new(
-                self.text(I18nKey::SettingsSpace),
-                active_space(&self.settings.draft)
-                    .map(|space| space.label.clone())
-                    .unwrap_or_else(|| {
-                        if self.settings.draft.spaces.is_empty() {
-                            self.text(I18nKey::ValueNoSpace).to_string()
-                        } else {
-                            format!("{} discovered", self.settings.draft.spaces.len())
-                        }
-                    }),
-                self.text(I18nKey::HintSpace),
-            ),
-            SettingsAction::SpaceChoice(index) => {
-                let space = &self.settings.draft.spaces[index];
-                let selected = self.settings.draft.active_space.as_deref() == Some(&space.id);
-                SettingsRow::new(
-                    format!("Space {}", space.label),
-                    if selected {
-                        "selected".to_string()
-                    } else {
-                        format!("{} skills", space.package_count)
-                    },
-                    "Enter selects space",
-                )
-            }
             SettingsAction::SourceAdd => SettingsRow::new(
                 self.text(I18nKey::SettingsSources),
                 format!(
@@ -1879,8 +1838,6 @@ enum SettingsAction {
     CacheTtl,
     CacheClear,
     Safety,
-    Space,
-    SpaceChoice(usize),
     SourceAdd,
     SourceToggle(usize),
     SourceTest(usize),
@@ -2396,7 +2353,7 @@ mod tests {
     }
 
     #[test]
-    fn settings_space_selects_discovered_space_without_startup_args() {
+    fn settings_no_longer_lists_or_selects_spaces() {
         let temp = tempdir().unwrap();
         let path = temp.path().join("config.toml");
         let mut app = App::from_skills_with_config(
@@ -2404,6 +2361,7 @@ mod tests {
             LoadedConfig {
                 path: path.clone(),
                 config: AppConfig {
+                    active_space: Some("qianchuan-fe".to_string()),
                     spaces: vec![SpaceSettings::qianchuan_fe()],
                     ..AppConfig::default()
                 },
@@ -2411,21 +2369,14 @@ mod tests {
             },
         );
 
-        assert_eq!(app.active_space_label(), None);
+        assert_eq!(app.active_space_label(), Some("qianchuan/fe"));
 
         app.handle_key(KeyEvent::from(KeyCode::Char(',')));
-        move_to_setting(&mut app, "Space");
-        app.handle_key(KeyEvent::from(KeyCode::Enter));
-
-        assert_eq!(app.settings.draft.active_space, None);
         assert!(
-            app.output()
+            app.settings_rows()
                 .iter()
-                .any(|line| line.contains("Space -> none"))
+                .all(|row| !row.label.starts_with("Space"))
         );
-
-        move_to_setting(&mut app, "Space qianchuan/fe");
-        app.handle_key(KeyEvent::from(KeyCode::Enter));
         assert_eq!(
             app.settings.draft.active_space.as_deref(),
             Some("qianchuan-fe")

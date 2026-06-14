@@ -1,5 +1,6 @@
 ---
 source: src/ui.rs
+assertion_line: 1495
 expression: "render_app_snapshot(app, 120, 40)"
 ---
 ╭──────────────────────────────────────────────────────────────────────────────────╮╭Filters───────────────────────────╮
@@ -17,11 +18,11 @@ expression: "render_app_snapshot(app, 120, 40)"
 │                │  缓 存  TTL                        1800s  Enter 切 换  TTL                             │                │
 │                │  缓 存                             ready  Enter 清 理 缓 存 状 态                          │s/code-review   │
 │                │  安 全                             已 锁 定   不 能 关 闭 安 全 底 线                           │                │
-│                │  空 间                             无   Enter 清 空 已 选 空 间                             │                │
 │                │  来 源                             1 个 已 配 置   Enter 新 增 禁 用 来 源                     │                │
-│                │  来 源  bytedance-agentbuddy       启 用   Enter 启 用 /禁 用 来 源                          │, agent-2]      │
-│                │  测 试  bytedance-agentbuddy       not-tested  Enter 本 地 测 试 来 源                     │                │
-│                │  保 存                             持 久 化  config.toml  Enter 写 入 配 置                 │rs, 1 refs, 0   │
+│                │  来 源  bytedance-agentbuddy       启 用   Enter 启 用 /禁 用 来 源                          │                │
+│                │  测 试  bytedance-agentbuddy       not-tested  Enter 本 地 测 试 来 源                     │, agent-2]      │
+│                │  保 存                             持 久 化  config.toml  Enter 写 入 配 置                 │                │
+│                │                                                                                    │rs, 1 refs, 0   │
 │                │                                                                                    │                │
 │                │                                                                                    │w.sh            │
 │                │                                                                                    │                │

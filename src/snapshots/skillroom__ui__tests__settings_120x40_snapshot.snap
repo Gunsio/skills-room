@@ -1,5 +1,6 @@
 ---
 source: src/ui.rs
+assertion_line: 1460
 expression: "render_settings_snapshot(120, 40)"
 ---
 ╭──────────────────────────────────────────────────────────────────────────────────╮╭Filters───────────────────────────╮
@@ -17,11 +18,11 @@ expression: "render_settings_snapshot(120, 40)"
 │                │  Cache TTL                     1800s  Enter cycles TTL                             │                │
 │                │  Cache                         ready  Enter clears cache state                     │s/code-review   │
 │                │  Safety                        locked  Cannot disable guard rails                  │                │
-│                │  Space                         none  Enter clears selected space                   │                │
 │                │  Sources                       1 configured  Enter adds disabled source            │                │
-│                │  Source bytedance-agentbuddy   enabled  Enter toggles source                       │, agent-2]      │
-│                │  Test bytedance-agentbuddy     not-tested  Enter dry-runs source                   │                │
-│                │  Save                          persist config.toml  Enter writes config            │irs, 1 refs, 0  │
+│                │  Source bytedance-agentbuddy   enabled  Enter toggles source                       │                │
+│                │  Test bytedance-agentbuddy     not-tested  Enter dry-runs source                   │, agent-2]      │
+│                │  Save                          persist config.toml  Enter writes config            │                │
+│                │                                                                                    │irs, 1 refs, 0  │
 │                │                                                                                    │                │
 │                │                                                                                    │view.sh         │
 │                │                                                                                    │ove             │
