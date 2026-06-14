@@ -1,7 +1,7 @@
 use std::{
     collections::VecDeque,
     fmt,
-    io::{BufRead, BufReader},
+    io::{BufRead, BufReader, Write},
     process::{Command, Stdio},
     sync::mpsc::{self, Receiver},
     thread,
@@ -218,11 +218,15 @@ fn run_commands(commands: Vec<ActionCommand>, sender: mpsc::Sender<RunnerEvent>)
 
         let program = &command.argv[0];
         let args = &command.argv[1..];
-        let child = Command::new(program)
+        let mut process = Command::new(program);
+        process
             .args(args)
             .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn();
+            .stderr(Stdio::piped());
+        if command.stdin.is_some() {
+            process.stdin(Stdio::piped());
+        }
+        let child = process.spawn();
 
         let mut child = match child {
             Ok(child) => child,
@@ -234,6 +238,18 @@ fn run_commands(commands: Vec<ActionCommand>, sender: mpsc::Sender<RunnerEvent>)
                 return;
             }
         };
+
+        if let Some(stdin) = &command.stdin
+            && let Some(mut child_stdin) = child.stdin.take()
+        {
+            if let Err(error) = child_stdin.write_all(stdin.as_bytes()) {
+                let _ = sender.send(RunnerEvent::Failed(format!(
+                    "failed to write stdin for {}: {error}",
+                    command.display_line()
+                )));
+                return;
+            }
+        }
 
         let stdout = child.stdout.take();
         let stderr = child.stderr.take();

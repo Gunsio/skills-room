@@ -81,6 +81,7 @@ impl ActionPlan {
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct ActionCommand {
     pub argv: Vec<String>,
+    pub stdin: Option<String>,
 }
 
 impl ActionCommand {
@@ -91,11 +92,21 @@ impl ActionCommand {
             ));
         }
 
-        Ok(Self { argv })
+        Ok(Self { argv, stdin: None })
+    }
+
+    pub fn with_stdin(
+        argv: Vec<String>,
+        stdin: impl Into<String>,
+    ) -> Result<Self, ActionPlanError> {
+        let mut command = Self::new(argv)?;
+        command.stdin = Some(stdin.into());
+        Ok(command)
     }
 
     pub fn display_line(&self) -> String {
-        self.argv
+        let mut line = self
+            .argv
             .iter()
             .map(|part| {
                 if part.contains(char::is_whitespace) {
@@ -105,7 +116,11 @@ impl ActionCommand {
                 }
             })
             .collect::<Vec<_>>()
-            .join(" ")
+            .join(" ");
+        if let Some(stdin) = &self.stdin {
+            line.push_str(&format!(" [stdin={}]", stdin));
+        }
+        line
     }
 }
 
@@ -295,9 +310,13 @@ impl ActionPlanner {
         self.skill_plan(
             ActionKind::CopyPath,
             skill,
-            vec![ActionCommand {
-                argv: vec!["copy-path".to_string(), skill.path.display().to_string()],
-            }],
+            vec![
+                ActionCommand::with_stdin(
+                    vec!["pbcopy".to_string()],
+                    skill.path.display().to_string(),
+                )
+                .expect("pbcopy argv is static and valid"),
+            ],
             format!("copies {}", skill.path.display()),
         )
     }
@@ -540,5 +559,8 @@ mod tests {
         assert_eq!(copy.confirmation_token, None);
         assert!(!open.is_write());
         assert!(!copy.is_destructive());
+        assert_eq!(copy.commands[0].argv, vec!["pbcopy"]);
+        let path = skill.path.display().to_string();
+        assert_eq!(copy.commands[0].stdin.as_deref(), Some(path.as_str()));
     }
 }

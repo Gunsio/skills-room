@@ -477,18 +477,7 @@ impl App {
 
     fn apply_immediate_action(&mut self, plan: ActionPlan) {
         match plan.kind {
-            ActionKind::CopyPath => {
-                self.push_output(&format!("[action] Copied path: {}", plan.path.display()));
-            }
-            ActionKind::OpenPath => {
-                self.push_output(&format!(
-                    "[action] Open path requested: {}",
-                    plan.path.display()
-                ));
-                for command in plan.command_lines() {
-                    self.push_output(&format!("[argv] {command}"));
-                }
-            }
+            ActionKind::CopyPath | ActionKind::OpenPath => self.start_action(plan),
             _ => {
                 self.push_output(&format!("[action] Prepared {}.", plan.title));
             }
@@ -1717,9 +1706,26 @@ mod tests {
         assert!(
             app.output()
                 .iter()
-                .any(|line| line.contains("Open path requested"))
+                .any(|line| line.contains("Started Open path"))
         );
-        assert!(app.output().iter().any(|line| line.contains("Copied path")));
+        assert!(
+            app.output()
+                .iter()
+                .any(|line| line.contains("Started Copy path"))
+        );
+
+        app.tick();
+        assert!(
+            app.output()
+                .iter()
+                .any(|line| line.contains("[run] Open path"))
+        );
+        app.tick();
+        assert!(
+            app.output()
+                .iter()
+                .any(|line| line.contains("[run] Copy path"))
+        );
     }
 
     #[test]
