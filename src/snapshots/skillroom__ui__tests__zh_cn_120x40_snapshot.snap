@@ -1,5 +1,6 @@
 ---
 source: src/ui.rs
+assertion_line: 1731
 expression: "render_app_snapshot(app, 120, 40)"
 ---
 ╭──────────────────────────────────────────────────────────────────────────────────╮╭Filters───────────────────────────╮
@@ -12,23 +13,23 @@ expression: "render_app_snapshot(app, 120, 40)"
 │↻   code-review       curated           Local     Update      Medium    1.9.2   ││repository-local conventions and    │
 │◆   data-analysis     skills.bytedance  Global    Active      Low       current ││test gates.                         │
 │!   legacy-deploy     local/archive     Local     Error       High      blocked ││                                    │
-│◆   taproom           local/git         Local     Ready       None      current ││版 本 : 1.8.0                         │
-│◆   web-scraper       github            Global    Ready       Low       current ││来 源 : curated                       │
-│                                                                                ││范 围 : Local                         │
-│                                                                                ││路 径 : ~/.codex/skills/code-review   │
-│                                                                                ││                                    │
+│◆   taproom           local/git         Local     Ready       None      current ││Primary                             │
+│◆   web-scraper       github            Global    Ready       Low       current ││版 本 : 1.8.0                         │
+│                                                                                ││Signals: none                       │
+│                                                                                ││Owner: unknown                      │
+│                                                                                ││Access: not installable             │
 │                                                                                ││状 态 : Update                        │
 │                                                                                ││风 险 : Medium                        │
-│                                                                                ││Agents: 2/2 [agent-1, agent-2]      │
-│                                                                                ││                                    │
-│                                                                                ││文 件 : 12 files, 2 dirs, 1 refs, 0   │
-│                                                                                ││assets, 360 lines                   │
-│                                                                                ││脚 本 : lint.sh, review.sh            │
 │                                                                                ││操 作 : update, remove                │
 │                                                                                ││                                    │
-│                                                                                ││元 数 据 : installed, source=curated   │
-│                                                                                ││错 误 : none                          │
-│                                                                                ││标 签 : code, review, quality         │
+│                                                                                ││+ expand details  - shrink          │
+│                                                                                ││                                    │
+│                                                                                ││                                    │
+│                                                                                ││                                    │
+│                                                                                ││                                    │
+│                                                                                ││                                    │
+│                                                                                ││                                    │
+│                                                                                ││                                    │
 │                                                                                ││                                    │
 │                                                                                ││                                    │
 │                                                                                ││                                    │
@@ -40,4 +41,4 @@ Space none | Remote scope local only | Filter none | Source 全 部  | Skill sco
 General   : q: quit R: refresh tab: switch focus /: search esc: clear search enter/l: details s: spaces
 Navigation: j/↓: cursor down k/↑: cursor up PageUp: prev page PageDown: next page g: go to top G: go to bottom
 Filter    : a: all f: source i: local o: updates v: active
-Commands  : h: open path S: sort t: install u: update U: update all x: remove y: copy path ,: settings
+Commands  : h: open path S: sort t: install u: update U: update all x: remove y: copy path +/-: detail zoom ,: settings

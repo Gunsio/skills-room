@@ -23,7 +23,7 @@ pub struct AppLayout {
 }
 
 impl AppLayout {
-    pub fn calculate(area: Rect) -> Option<Self> {
+    pub fn calculate(area: Rect, detail_zoom: u8) -> Option<Self> {
         if area.width < MIN_WIDTH || area.height < MIN_HEIGHT {
             return None;
         }
@@ -45,7 +45,7 @@ impl AppLayout {
         .areas(top);
 
         let [table, side] = Layout::horizontal([
-            Constraint::Percentage(tier.table_percent()),
+            Constraint::Percentage(tier.table_percent(detail_zoom)),
             Constraint::Fill(1),
         ])
         .areas(body);
@@ -72,11 +72,17 @@ impl LayoutTier {
         }
     }
 
-    fn table_percent(self) -> u16 {
-        match self {
+    fn table_percent(self, detail_zoom: u8) -> u16 {
+        let base = match self {
             Self::Compact => 62,
             Self::Standard => 68,
             Self::Wide => 70,
+        };
+
+        match detail_zoom.min(2) {
+            0 => base,
+            1 => base.saturating_sub(12).max(44),
+            _ => base.saturating_sub(24).max(36),
         }
     }
 
@@ -118,8 +124,8 @@ mod tests {
 
     #[test]
     fn rejects_too_small_terminal() {
-        assert_eq!(AppLayout::calculate(Rect::new(0, 0, 79, 24)), None);
-        assert_eq!(AppLayout::calculate(Rect::new(0, 0, 80, 23)), None);
+        assert_eq!(AppLayout::calculate(Rect::new(0, 0, 79, 24), 0), None);
+        assert_eq!(AppLayout::calculate(Rect::new(0, 0, 80, 23), 0), None);
     }
 
     #[test]
@@ -131,7 +137,7 @@ mod tests {
         ];
 
         for ((width, height), expected_tier) in cases {
-            let layout = AppLayout::calculate(Rect::new(0, 0, width, height)).unwrap();
+            let layout = AppLayout::calculate(Rect::new(0, 0, width, height), 0).unwrap();
             assert_eq!(layout.tier, expected_tier);
             assert_non_empty(layout.search);
             assert_non_empty(layout.filters);
@@ -140,6 +146,17 @@ mod tests {
             assert_non_empty(layout.stats);
             assert_non_empty(layout.help);
         }
+    }
+
+    #[test]
+    fn detail_zoom_expands_details_without_collapsing_table() {
+        let normal = AppLayout::calculate(Rect::new(0, 0, 120, 40), 0).unwrap();
+        let wide = AppLayout::calculate(Rect::new(0, 0, 120, 40), 1).unwrap();
+        let full = AppLayout::calculate(Rect::new(0, 0, 120, 40), 2).unwrap();
+
+        assert!(wide.details.width > normal.details.width);
+        assert!(full.details.width > wide.details.width);
+        assert!(full.table.width > 0);
     }
 
     fn assert_non_empty(area: Rect) {

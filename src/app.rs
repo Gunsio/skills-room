@@ -43,6 +43,7 @@ pub struct App {
     i18n: I18nCatalog,
     settings: SettingsState,
     remote_sources_enabled: bool,
+    detail_zoom: u8,
 }
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
@@ -241,6 +242,7 @@ impl App {
             i18n,
             settings,
             remote_sources_enabled: false,
+            detail_zoom: 0,
         }
     }
 
@@ -318,6 +320,8 @@ impl App {
                 self.show_help = !self.show_help;
             }
             (KeyCode::Char('R'), _) => self.refresh_inventory(),
+            (KeyCode::Char('+') | KeyCode::Char('='), _) => self.increase_detail_zoom(),
+            (KeyCode::Char('-'), _) => self.decrease_detail_zoom(),
             (KeyCode::Char('a'), _) => self.clear_filters(),
             (KeyCode::Char('f'), _) => self.cycle_source_filter(),
             (KeyCode::Char('i'), _) => self.toggle_local_filter(),
@@ -1056,6 +1060,23 @@ impl App {
             .map(|(_, skill)| *skill)
     }
 
+    pub(crate) fn detail_zoom_level(&self) -> u8 {
+        self.detail_zoom
+    }
+
+    pub(crate) fn detail_expanded(&self) -> bool {
+        self.detail_zoom > 0
+    }
+
+    pub(crate) fn detail_full(&self) -> bool {
+        self.detail_zoom > 1
+    }
+
+    #[cfg(test)]
+    pub(crate) fn set_detail_zoom_for_test(&mut self, detail_zoom: u8) {
+        self.detail_zoom = detail_zoom.min(2);
+    }
+
     pub(crate) fn selected_space_row(&self) -> Option<SpaceListRow> {
         self.visible_spaces().get(self.space_selected).cloned()
     }
@@ -1378,6 +1399,28 @@ impl App {
         }
     }
 
+    fn increase_detail_zoom(&mut self) {
+        let before = self.detail_zoom;
+        self.detail_zoom = self.detail_zoom.saturating_add(1).min(2);
+        if self.detail_zoom != before {
+            self.push_output(&format!(
+                "[detail] Zoom {}.",
+                detail_zoom_label(self.detail_zoom)
+            ));
+        }
+    }
+
+    fn decrease_detail_zoom(&mut self) {
+        let before = self.detail_zoom;
+        self.detail_zoom = self.detail_zoom.saturating_sub(1);
+        if self.detail_zoom != before {
+            self.push_output(&format!(
+                "[detail] Zoom {}.",
+                detail_zoom_label(self.detail_zoom)
+            ));
+        }
+    }
+
     fn available_sources(&self) -> Vec<Source> {
         let mut sources = Vec::new();
         for skill in &self.skills {
@@ -1563,6 +1606,14 @@ impl App {
         "[status] Details panel ready.",
         "[prompt] Ready for keyboard input.",
     ];
+}
+
+fn detail_zoom_label(level: u8) -> &'static str {
+    match level {
+        0 => "normal",
+        1 => "wide",
+        _ => "full",
+    }
 }
 
 fn next_cache_ttl(current: u64) -> u64 {
@@ -2124,6 +2175,29 @@ mod tests {
 
         app.handle_key(KeyEvent::from(KeyCode::Char('l')));
         assert_eq!(app.focus(), FocusArea::Details);
+    }
+
+    #[test]
+    fn plus_minus_resize_detail_panel_like_lazygit() {
+        let mut app = App::default();
+
+        assert_eq!(app.detail_zoom_level(), 0);
+
+        app.handle_key(KeyEvent::from(KeyCode::Char('+')));
+        assert_eq!(app.detail_zoom_level(), 1);
+        assert!(app.detail_expanded());
+
+        app.handle_key(KeyEvent::from(KeyCode::Char('=')));
+        assert_eq!(app.detail_zoom_level(), 2);
+        assert!(app.detail_full());
+
+        app.handle_key(KeyEvent::from(KeyCode::Char('+')));
+        assert_eq!(app.detail_zoom_level(), 2);
+
+        app.handle_key(KeyEvent::from(KeyCode::Char('-')));
+        assert_eq!(app.detail_zoom_level(), 1);
+        app.handle_key(KeyEvent::from(KeyCode::Char('-')));
+        assert_eq!(app.detail_zoom_level(), 0);
     }
 
     #[test]

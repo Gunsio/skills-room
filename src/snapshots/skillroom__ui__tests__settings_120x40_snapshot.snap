@@ -1,6 +1,6 @@
 ---
 source: src/ui.rs
-assertion_line: 1460
+assertion_line: 1714
 expression: "render_settings_snapshot(120, 40)"
 ---
 ╭──────────────────────────────────────────────────────────────────────────────────╮╭Filters───────────────────────────╮
@@ -16,20 +16,20 @@ expression: "render_settings_snapshot(120, 40)"
 │◆   taproom     │> Theme                         Tokyo Night  Enter cycles theme                     │                │
 │◆   web-scraper │  Language                      English  Enter cycles language                      │                │
 │                │  Cache TTL                     1800s  Enter cycles TTL                             │                │
-│                │  Cache                         ready  Enter clears cache state                     │s/code-review   │
-│                │  Safety                        locked  Cannot disable guard rails                  │                │
+│                │  Cache                         ready  Enter clears cache state                     │                │
+│                │  Safety                        locked  Cannot disable guard rails                  │ble             │
 │                │  Sources                       1 configured  Enter adds disabled source            │                │
 │                │  Source bytedance-agentbuddy   enabled  Enter toggles source                       │                │
-│                │  Test bytedance-agentbuddy     not-tested  Enter dry-runs source                   │, agent-2]      │
+│                │  Test bytedance-agentbuddy     not-tested  Enter dry-runs source                   │ove             │
 │                │  Save                          persist config.toml  Enter writes config            │                │
-│                │                                                                                    │irs, 1 refs, 0  │
+│                │                                                                                    │shrink          │
 │                │                                                                                    │                │
-│                │                                                                                    │view.sh         │
-│                │                                                                                    │ove             │
 │                │                                                                                    │                │
-│                │                                                                                    │ source=curated │
 │                │                                                                                    │                │
-│                │                                                                                    │quality         │
+│                │                                                                                    │                │
+│                │                                                                                    │                │
+│                │                                                                                    │                │
+│                │                                                                                    │                │
 │                │                                                                                    │                │
 │                │                                                                                    │                │
 │                │                                                                                    │                │
@@ -41,4 +41,4 @@ Space none | Remote scope local only | Filter none | Source all | Skill scope al
 General   : q: quit R: refresh tab: switch focus /: search esc: clear search enter/l: details s: spaces
 Navigation: j/↓: cursor down k/↑: cursor up PageUp: prev page PageDown: next page g: go to top G: go to bottom
 Filter    : a: all f: source i: local o: updates v: active
-Commands  : h: open path S: sort t: install u: update U: update all x: remove y: copy path ,: settings
+Commands  : h: open path S: sort t: install u: update U: update all x: remove y: copy path +/-: detail zoom ,: settings

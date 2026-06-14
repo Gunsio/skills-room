@@ -17,7 +17,7 @@ use crate::{
 
 pub fn render(app: &App, frame: &mut Frame<'_>) {
     let area = frame.area();
-    let Some(layout) = AppLayout::calculate(area) else {
+    let Some(layout) = AppLayout::calculate(area, app.detail_zoom_level()) else {
         frame.render_widget(
             Paragraph::new(too_small_message(area)).alignment(Alignment::Center),
             area,
@@ -577,69 +577,7 @@ fn render_details(
     }
 
     let lines = match app.selected_skill() {
-        Some(skill) => vec![
-            Line::from(vec![
-                Span::styled("◇ ", theme.title()),
-                Span::styled(skill.name.clone(), theme.info()),
-            ]),
-            Line::from(skill.description.clone()),
-            Line::from(""),
-            Line::from(vec![
-                Span::styled(app.text(I18nKey::DetailVersion), theme.label()),
-                Span::styled(skill.version_label(), theme.value()),
-            ]),
-            Line::from(vec![
-                Span::styled(app.text(I18nKey::DetailSource), theme.label()),
-                Span::styled(skill.source.label(), theme.value()),
-            ]),
-            Line::from(vec![
-                Span::styled(app.text(I18nKey::DetailScope), theme.label()),
-                Span::styled(skill.scope.label(), theme.value()),
-            ]),
-            Line::from(vec![
-                Span::styled(app.text(I18nKey::DetailPath), theme.label()),
-                Span::styled(skill.path.display().to_string(), theme.value()),
-            ]),
-            Line::from(""),
-            Line::from(vec![
-                Span::styled(app.text(I18nKey::DetailState), theme.label()),
-                Span::styled(skill.state.label(), state_style(skill.state, theme)),
-            ]),
-            Line::from(vec![
-                Span::styled(app.text(I18nKey::DetailRisk), theme.label()),
-                Span::styled(skill.risk.label(), risk_style(skill.risk, theme)),
-            ]),
-            Line::from(vec![
-                Span::styled(app.text(I18nKey::DetailAgents), theme.label()),
-                Span::styled(agents_summary(skill), theme.value()),
-            ]),
-            Line::from(""),
-            Line::from(vec![
-                Span::styled(app.text(I18nKey::DetailFiles), theme.label()),
-                Span::styled(files_summary(skill), theme.value()),
-            ]),
-            Line::from(vec![
-                Span::styled(app.text(I18nKey::DetailScripts), theme.label()),
-                Span::styled(csv_or_none(&skill.scripts), theme.value()),
-            ]),
-            Line::from(vec![
-                Span::styled(app.text(I18nKey::DetailActions), theme.label()),
-                Span::styled(action_summary(skill), theme.value()),
-            ]),
-            Line::from(""),
-            Line::from(vec![
-                Span::styled(app.text(I18nKey::DetailMetadata), theme.label()),
-                Span::styled(skill.metadata_label(), theme.muted()),
-            ]),
-            Line::from(vec![
-                Span::styled(app.text(I18nKey::DetailError), theme.label()),
-                Span::styled(skill.error.as_deref().unwrap_or("none"), theme.value()),
-            ]),
-            Line::from(vec![
-                Span::styled(app.text(I18nKey::DetailTags), theme.label()),
-                Span::styled(csv_or_none(&skill.tags), theme.muted()),
-            ]),
-        ],
+        Some(skill) => detail_lines(app, skill, theme),
         None => vec![Line::from(Span::styled(
             app.text(I18nKey::NoSkillSelected),
             theme.muted(),
@@ -657,6 +595,179 @@ fn render_details(
             .wrap(Wrap { trim: false }),
         area,
     );
+}
+
+fn detail_lines(
+    app: &App,
+    skill: &crate::skill::SkillRecord,
+    theme: ThemePalette,
+) -> Vec<Line<'static>> {
+    let mut lines = vec![
+        Line::from(vec![
+            Span::styled("◇ ", theme.title()),
+            Span::styled(skill.name.clone(), theme.info()),
+        ]),
+        Line::from(description_preview(skill, app.detail_zoom_level())),
+    ];
+
+    if app.detail_full() {
+        lines.extend(full_detail_lines(app, skill, theme));
+        return lines;
+    }
+
+    lines.extend([
+        Line::from(""),
+        detail_section("Primary", theme),
+        detail_pair(
+            app.text(I18nKey::DetailVersion),
+            version_summary(skill),
+            theme,
+        ),
+        detail_pair("Signals: ", signal_summary(skill), theme),
+        detail_pair("Owner: ", owner_summary(skill), theme),
+        detail_pair("Access: ", access_summary(skill), theme),
+        detail_pair(app.text(I18nKey::DetailState), skill.state.label(), theme),
+        detail_pair(app.text(I18nKey::DetailRisk), skill.risk.label(), theme),
+        detail_pair(
+            app.text(I18nKey::DetailActions),
+            action_summary(skill),
+            theme,
+        ),
+    ]);
+
+    if !app.detail_expanded() {
+        lines.push(Line::from(""));
+        lines.push(Line::from(vec![
+            Span::styled("+ ", theme.title()),
+            Span::styled("expand details", theme.muted()),
+            Span::styled("  - ", theme.title()),
+            Span::styled("shrink", theme.muted()),
+        ]));
+        return lines;
+    }
+
+    lines.extend([
+        Line::from(""),
+        detail_section("More", theme),
+        detail_pair(app.text(I18nKey::DetailSource), skill.source.label(), theme),
+        detail_pair(app.text(I18nKey::DetailScope), skill.scope.label(), theme),
+        detail_pair(
+            "Space: ",
+            tag_value(skill, "space:").unwrap_or("none"),
+            theme,
+        ),
+        detail_pair(
+            app.text(I18nKey::DetailAgents),
+            agents_summary(skill),
+            theme,
+        ),
+        detail_pair("Repository: ", repository_summary(skill), theme),
+        detail_pair("Updated: ", modified_summary(skill), theme),
+        detail_pair(
+            app.text(I18nKey::DetailPath),
+            skill.path.display().to_string(),
+            theme,
+        ),
+    ]);
+
+    lines.push(Line::from(vec![
+        Span::styled("+ ", theme.title()),
+        Span::styled("full audit fields", theme.muted()),
+    ]));
+
+    lines
+}
+
+fn full_detail_lines(
+    app: &App,
+    skill: &crate::skill::SkillRecord,
+    theme: ThemePalette,
+) -> Vec<Line<'static>> {
+    vec![
+        Line::from(""),
+        detail_section("Primary", theme),
+        detail_pair(
+            "Version/Signals: ",
+            format!("{} | {}", version_summary(skill), signal_summary(skill)),
+            theme,
+        ),
+        detail_pair(
+            "State/Risk/Actions: ",
+            format!(
+                "{} | {} | {}",
+                skill.state.label(),
+                skill.risk.label(),
+                action_summary(skill)
+            ),
+            theme,
+        ),
+        detail_pair(
+            "Owner/Access: ",
+            format!("{} | {}", owner_summary(skill), access_summary(skill)),
+            theme,
+        ),
+        Line::from(""),
+        detail_section("More", theme),
+        detail_pair(
+            "Source/Scope/Space: ",
+            format!(
+                "{} | {} | {}",
+                skill.source.label(),
+                skill.scope.label(),
+                tag_value(skill, "space:").unwrap_or("none")
+            ),
+            theme,
+        ),
+        detail_pair("Repository: ", repository_summary(skill), theme),
+        detail_pair("Updated: ", modified_summary(skill), theme),
+        detail_pair(
+            app.text(I18nKey::DetailPath),
+            skill.path.display().to_string(),
+            theme,
+        ),
+        Line::from(""),
+        detail_section("Audit", theme),
+        detail_pair(
+            "Identifier: ",
+            skill.metadata.source_id.as_deref().unwrap_or("none"),
+            theme,
+        ),
+        detail_pair("Created: ", created_summary(skill), theme),
+        detail_pair("Maintainers: ", maintainers_summary(skill), theme),
+        detail_pair("Permissions: ", permission_summary(skill), theme),
+        detail_pair("Flags: ", flags_summary(skill), theme),
+        detail_pair(
+            "Files/Scripts: ",
+            format!("{} | {}", files_summary(skill), csv_or_none(&skill.scripts)),
+            theme,
+        ),
+        detail_pair("Commands: ", command_summary(skill), theme),
+        detail_pair(
+            "Meta/Error/Tags: ",
+            format!(
+                "{} | {} | {}",
+                skill.metadata_label(),
+                skill.error.as_deref().unwrap_or("none"),
+                csv_or_none(&skill.tags)
+            ),
+            theme,
+        ),
+    ]
+}
+
+fn detail_section(title: &'static str, theme: ThemePalette) -> Line<'static> {
+    Line::from(Span::styled(title, theme.title()))
+}
+
+fn detail_pair(
+    label: impl Into<String>,
+    value: impl Into<String>,
+    theme: ThemePalette,
+) -> Line<'static> {
+    Line::from(vec![
+        Span::styled(label.into(), theme.label()),
+        Span::styled(value.into(), theme.value()),
+    ])
 }
 
 fn render_space_details(
@@ -739,6 +850,212 @@ fn files_summary(skill: &crate::skill::SkillRecord) -> String {
         skill.stats.assets,
         skill.stats.line_count
     )
+}
+
+fn version_summary(skill: &crate::skill::SkillRecord) -> String {
+    let mut parts = vec![skill.version_label().to_string()];
+    if let Some(published_by) = &skill.metadata.published_by {
+        parts.push(format!("by {published_by}"));
+    }
+    if let Some(published_at) = &skill.metadata.published_at {
+        parts.push(format!("at {published_at}"));
+    }
+    parts.join(" ")
+}
+
+fn description_preview(skill: &crate::skill::SkillRecord, detail_zoom: u8) -> String {
+    let limit = match detail_zoom {
+        0 => 240,
+        1 => 180,
+        _ => 120,
+    };
+    truncate_text(&skill.description, limit)
+}
+
+fn truncate_text(value: &str, max_chars: usize) -> String {
+    let mut chars = value.chars();
+    let mut truncated = chars.by_ref().take(max_chars).collect::<String>();
+    if chars.next().is_some() {
+        truncated.push_str("...");
+    }
+    truncated
+}
+
+fn signal_summary(skill: &crate::skill::SkillRecord) -> String {
+    let mut parts = Vec::new();
+    if let Some(stars) = skill.metadata.star_count {
+        parts.push(format!("stars {stars}"));
+    }
+    if let Some(downloads) = tag_value(skill, "downloads:") {
+        parts.push(format!("downloads {downloads}"));
+    }
+    if let Some(quality) = skill.metadata.quality {
+        parts.push(format!("quality {quality}"));
+    }
+    if skill.metadata.official == Some(true) {
+        parts.push("official".to_string());
+    }
+    if parts.is_empty() {
+        "none".to_string()
+    } else {
+        parts.join(" | ")
+    }
+}
+
+fn owner_summary(skill: &crate::skill::SkillRecord) -> String {
+    if !skill.metadata.maintainers.is_empty() {
+        return truncate_items(&skill.metadata.maintainers, 2);
+    }
+    skill
+        .metadata
+        .created_by
+        .clone()
+        .unwrap_or_else(|| "unknown".to_string())
+}
+
+fn access_summary(skill: &crate::skill::SkillRecord) -> String {
+    let mut parts = vec![
+        if skill.metadata.installable || skill.state == SkillState::Installable {
+            "installable".to_string()
+        } else {
+            "not installable".to_string()
+        },
+    ];
+    if let Some(view) = skill.metadata.view_permission {
+        parts.push(format!("view {}", bool_label(view)));
+    }
+    if let Some(download) = skill.metadata.download_permission {
+        parts.push(format!("download {}", bool_label(download)));
+    }
+    parts.join(" | ")
+}
+
+fn repository_summary(skill: &crate::skill::SkillRecord) -> String {
+    if let Some(git_repo) = &skill.metadata.git_repo
+        && !git_repo.trim().is_empty()
+    {
+        return git_repo.clone();
+    }
+    let mut parts = Vec::new();
+    if let Some(repository) = &skill.metadata.repository {
+        parts.push(repository.clone());
+    }
+    if let Some(kind) = &skill.metadata.repository_type {
+        parts.push(kind.clone());
+    }
+    if parts.is_empty() {
+        "unknown".to_string()
+    } else {
+        parts.join(" | ")
+    }
+}
+
+fn modified_summary(skill: &crate::skill::SkillRecord) -> String {
+    skill
+        .metadata
+        .modified_at
+        .as_ref()
+        .or(skill.metadata.published_at.as_ref())
+        .cloned()
+        .unwrap_or_else(|| "unknown".to_string())
+}
+
+fn created_summary(skill: &crate::skill::SkillRecord) -> String {
+    match (&skill.metadata.created_by, &skill.metadata.created_at) {
+        (Some(by), Some(at)) => format!("{by} at {at}"),
+        (Some(by), None) => by.clone(),
+        (None, Some(at)) => at.clone(),
+        (None, None) => "unknown".to_string(),
+    }
+}
+
+fn maintainers_summary(skill: &crate::skill::SkillRecord) -> String {
+    truncate_items(&skill.metadata.maintainers, 4)
+}
+
+fn permission_summary(skill: &crate::skill::SkillRecord) -> String {
+    let mut parts = Vec::new();
+    push_bool_part(&mut parts, "view", skill.metadata.view_permission);
+    push_bool_part(&mut parts, "download", skill.metadata.download_permission);
+    push_bool_part(&mut parts, "config", skill.metadata.config_permission);
+    push_bool_part(&mut parts, "deploy", skill.metadata.deploy_permission);
+    if parts.is_empty() {
+        "unknown".to_string()
+    } else {
+        parts.join(" | ")
+    }
+}
+
+fn flags_summary(skill: &crate::skill::SkillRecord) -> String {
+    let mut parts = Vec::new();
+    push_bool_part(&mut parts, "private", skill.metadata.private);
+    push_bool_part(&mut parts, "official", skill.metadata.official);
+    push_bool_part(&mut parts, "prod", skill.metadata.production);
+    push_bool_part(&mut parts, "pinned", skill.metadata.pinned);
+    push_bool_part(&mut parts, "public", skill.metadata.view_public);
+    push_bool_part(&mut parts, "repo_cfg", skill.metadata.repo_config_available);
+    push_bool_part(&mut parts, "tracking", skill.metadata.tracking_enabled);
+    if parts.is_empty() {
+        "unknown".to_string()
+    } else {
+        parts.join(" | ")
+    }
+}
+
+fn command_summary(skill: &crate::skill::SkillRecord) -> String {
+    let mut commands = Vec::new();
+    commands.extend(
+        skill
+            .command_plan
+            .install
+            .iter()
+            .map(|command| format!("install: {command}")),
+    );
+    commands.extend(
+        skill
+            .command_plan
+            .update
+            .iter()
+            .map(|command| format!("update: {command}")),
+    );
+    commands.extend(
+        skill
+            .command_plan
+            .remove
+            .iter()
+            .map(|command| format!("remove: {command}")),
+    );
+    if commands.is_empty() {
+        "none".to_string()
+    } else {
+        commands.join(" | ")
+    }
+}
+
+fn tag_value<'a>(skill: &'a crate::skill::SkillRecord, prefix: &str) -> Option<&'a str> {
+    skill.tags.iter().find_map(|tag| tag.strip_prefix(prefix))
+}
+
+fn push_bool_part(parts: &mut Vec<String>, label: &str, value: Option<bool>) {
+    if let Some(value) = value {
+        parts.push(format!("{label} {}", bool_label(value)));
+    }
+}
+
+fn bool_label(value: bool) -> &'static str {
+    if value { "yes" } else { "no" }
+}
+
+fn truncate_items(values: &[String], limit: usize) -> String {
+    if values.is_empty() {
+        return "none".to_string();
+    }
+    let mut items = values.iter().take(limit).cloned().collect::<Vec<_>>();
+    let remaining = values.len().saturating_sub(items.len());
+    if remaining > 0 {
+        items.push(format!("+{remaining} more"));
+    }
+    items.join(", ")
 }
 
 fn csv_or_none(values: &[String]) -> String {
@@ -1004,7 +1321,7 @@ fn render_help(app: &App, frame: &mut Frame<'_>, area: ratatui::layout::Rect, th
                     ("enter/l", "details"),
                     ("s", "spaces"),
                     ("h", h_hint),
-                    ("t", "install"),
+                    ("+/-", "zoom"),
                 ],
                 key_style,
                 text_style,
@@ -1061,6 +1378,7 @@ fn render_help(app: &App, frame: &mut Frame<'_>, area: ratatui::layout::Rect, th
                     ("U", "update all"),
                     ("x", "remove"),
                     ("y", "copy path"),
+                    ("+/-", "detail zoom"),
                     (",", "settings"),
                 ],
                 key_style,
@@ -1544,6 +1862,20 @@ mod tests {
 
         assert!(snapshot.contains("skill-29"));
         assert!(!snapshot.contains("skill-00"));
+    }
+
+    #[test]
+    fn detail_low_value_fields_appear_after_full_zoom() {
+        let normal = render_app_snapshot(App::default(), 120, 40);
+        assert!(normal.contains("Primary"));
+        assert!(!normal.contains("Audit"));
+
+        let mut app = App::default();
+        app.set_detail_zoom_for_test(2);
+        let expanded = render_app_snapshot(app, 120, 40);
+
+        assert!(expanded.contains("Audit"));
+        assert!(expanded.contains("Commands:"));
     }
 
     #[test]

@@ -420,6 +420,42 @@ fn marketplace_skill_record(
             installed: false,
             compatible_agents,
             source_status: Some(config.id.clone()),
+            created_by: string_field(item, &["created_by"]),
+            created_at: string_field(item, &["created_at"]),
+            modified_at: string_field(item, &["modified_at", "updated_at"]),
+            published_by: item
+                .pointer("/newest_version/published_by")
+                .and_then(string_at),
+            published_at: item
+                .pointer("/newest_version/created_at")
+                .and_then(string_at),
+            repository: string_field(item, &["repository"]),
+            repository_type: string_field(item, &["repository_type"]),
+            git_repo: string_field(item, &["git_repo", "git_source"]),
+            homepage: non_empty_string_field(item, &["homepage"]),
+            documentation: non_empty_string_field(item, &["documentation"]),
+            quality: unsigned_field(item, &["quality"]),
+            maintainers: maintainers_field(item),
+            view_permission: item
+                .pointer("/user_permission/view")
+                .and_then(Value::as_bool),
+            download_permission: item
+                .pointer("/user_permission/download")
+                .and_then(Value::as_bool)
+                .or_else(|| Some(!bool_field(item, &["no_permission"]).unwrap_or(false))),
+            config_permission: item
+                .pointer("/user_permission/config")
+                .and_then(Value::as_bool),
+            deploy_permission: item
+                .pointer("/user_permission/deploy")
+                .and_then(Value::as_bool),
+            private: bool_field(item, &["private"]),
+            official: bool_field(item, &["is_official"]),
+            production: bool_field(item, &["is_prod_env"]),
+            pinned: bool_field(item, &["is_pinned"]),
+            view_public: bool_field(item, &["view_public"]),
+            repo_config_available: bool_field(item, &["repo_config_available"]),
+            tracking_enabled: bool_field(item, &["tracking_enabled"]),
         },
         error: None,
     })
@@ -540,6 +576,28 @@ fn strings_field(value: &Value, key: &str) -> Vec<String> {
                 .iter()
                 .filter_map(Value::as_str)
                 .map(ToString::to_string)
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn maintainers_field(value: &Value) -> Vec<String> {
+    value
+        .get("maintainers")
+        .and_then(Value::as_array)
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(|item| {
+                    let maintainer = string_field(item, &["maintainer", "name"])?;
+                    let role = string_field(item, &["role"]);
+                    Some(match role {
+                        Some(role) if !role.trim().is_empty() => {
+                            format!("{maintainer}({role})")
+                        }
+                        _ => maintainer,
+                    })
+                })
                 .collect()
         })
         .unwrap_or_default()
@@ -684,7 +742,7 @@ mod tests {
     fn detail_maps_single_record_from_data_envelope() {
         let client = MockHttpClient::new(vec![Ok(HttpResponse::json(
             200,
-            r#"{"data":{"identifier":"skills:data","name":"data-analysis","summary":"Analyze data","agents":[{"name":"codex"}],"installable":false}}"#,
+            r#"{"data":{"identifier":"skills:data","name":"data-analysis","summary":"Analyze data","agents":[{"name":"codex"}],"installable":false,"created_by":"owner","created_at":"2026-06-01T00:00:00Z","modified_at":"2026-06-02T00:00:00Z","git_repo":"https://code.example/repo","repository":"skills-byted","repository_type":"hosted","private":true,"quality":4,"newest_version":{"version":"1.2.3","created_at":"2026-06-02T00:00:00Z","published_by":"publisher"},"maintainers":[{"maintainer":"owner","role":"owner"}],"user_permission":{"view":true,"download":true,"config":false,"deploy":false},"repo_config_available":true,"tracking_enabled":false}}"#,
         ))]);
         let adapter =
             AgentBuddyMarketplaceAdapter::new(AgentBuddyMarketplaceConfig::default(), client);
@@ -697,6 +755,19 @@ mod tests {
         assert_eq!(record.state, SkillState::RemoteOnly);
         assert_eq!(record.description, "Analyze data");
         assert_eq!(record.agents_count(), 1);
+        assert_eq!(record.version.as_deref(), Some("1.2.3"));
+        assert_eq!(record.metadata.created_by.as_deref(), Some("owner"));
+        assert_eq!(
+            record.metadata.git_repo.as_deref(),
+            Some("https://code.example/repo")
+        );
+        assert_eq!(record.metadata.published_by.as_deref(), Some("publisher"));
+        assert_eq!(record.metadata.quality, Some(4));
+        assert_eq!(record.metadata.maintainers, vec!["owner(owner)"]);
+        assert_eq!(record.metadata.view_permission, Some(true));
+        assert_eq!(record.metadata.download_permission, Some(true));
+        assert_eq!(record.metadata.config_permission, Some(false));
+        assert_eq!(record.metadata.repo_config_available, Some(true));
     }
 
     #[test]

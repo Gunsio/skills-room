@@ -1,5 +1,6 @@
 ---
 source: src/ui.rs
+assertion_line: 1709
 expression: "render_snapshot(160, 50)"
 ---
 ╭──────────────────────────────────────────────────────────────────────────────────────────────────────────────╮╭Filters───────────────────────────────────────╮
@@ -11,23 +12,23 @@ expression: "render_snapshot(160, 50)"
 │                                                                                                              ││Review pull requests with repository-local    │
 │↻   code-review                     curated                     Local     Update      Medium    1.9.2         ││conventions and test gates.                   │
 │◆   data-analysis                   skills.bytedance.net        Global    Active      Low       current       ││                                              │
-│!   legacy-deploy                   local/archive               Local     Error       High      blocked       ││Version: 1.8.0                                │
-│◆   taproom                         local/git                   Local     Ready       None      current       ││Source: curated                               │
-│◆   web-scraper                     github                      Global    Ready       Low       current       ││Scope: Local                                  │
-│                                                                                                              ││Path: ~/.codex/skills/code-review             │
-│                                                                                                              ││                                              │
+│!   legacy-deploy                   local/archive               Local     Error       High      blocked       ││Primary                                       │
+│◆   taproom                         local/git                   Local     Ready       None      current       ││Version: 1.8.0                                │
+│◆   web-scraper                     github                      Global    Ready       Low       current       ││Signals: none                                 │
+│                                                                                                              ││Owner: unknown                                │
+│                                                                                                              ││Access: not installable                       │
 │                                                                                                              ││State: Update                                 │
 │                                                                                                              ││Risk: Medium                                  │
-│                                                                                                              ││Agents: 2/2 [agent-1, agent-2]                │
-│                                                                                                              ││                                              │
-│                                                                                                              ││Files: 12 files, 2 dirs, 1 refs, 0 assets, 360│
-│                                                                                                              ││lines                                         │
-│                                                                                                              ││Scripts: lint.sh, review.sh                   │
 │                                                                                                              ││Actions: update, remove                       │
 │                                                                                                              ││                                              │
-│                                                                                                              ││Metadata: installed, source=curated           │
-│                                                                                                              ││Error: none                                   │
-│                                                                                                              ││Tags: code, review, quality                   │
+│                                                                                                              ││+ expand details  - shrink                    │
+│                                                                                                              ││                                              │
+│                                                                                                              ││                                              │
+│                                                                                                              ││                                              │
+│                                                                                                              ││                                              │
+│                                                                                                              ││                                              │
+│                                                                                                              ││                                              │
+│                                                                                                              ││                                              │
 │                                                                                                              ││                                              │
 │                                                                                                              ││                                              │
 │                                                                                                              ││                                              │
@@ -50,4 +51,4 @@ Space none | Remote scope local only | Filter none | Source all | Skill scope al
 General   : q: quit R: refresh tab: switch focus /: search esc: clear search enter/l: details s: spaces
 Navigation: j/↓: cursor down k/↑: cursor up PageUp: prev page PageDown: next page g: go to top G: go to bottom
 Filter    : a: all f: source i: local o: updates v: active
-Commands  : h: open path S: sort t: install u: update U: update all x: remove y: copy path ,: settings
+Commands  : h: open path S: sort t: install u: update U: update all x: remove y: copy path +/-: detail zoom ,: settings

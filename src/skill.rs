@@ -138,6 +138,52 @@ pub struct SkillMetadata {
     pub installed: bool,
     pub compatible_agents: Vec<String>,
     pub source_status: Option<String>,
+    #[serde(default)]
+    pub created_by: Option<String>,
+    #[serde(default)]
+    pub created_at: Option<String>,
+    #[serde(default)]
+    pub modified_at: Option<String>,
+    #[serde(default)]
+    pub published_by: Option<String>,
+    #[serde(default)]
+    pub published_at: Option<String>,
+    #[serde(default)]
+    pub repository: Option<String>,
+    #[serde(default)]
+    pub repository_type: Option<String>,
+    #[serde(default)]
+    pub git_repo: Option<String>,
+    #[serde(default)]
+    pub homepage: Option<String>,
+    #[serde(default)]
+    pub documentation: Option<String>,
+    #[serde(default)]
+    pub quality: Option<u64>,
+    #[serde(default)]
+    pub maintainers: Vec<String>,
+    #[serde(default)]
+    pub view_permission: Option<bool>,
+    #[serde(default)]
+    pub download_permission: Option<bool>,
+    #[serde(default)]
+    pub config_permission: Option<bool>,
+    #[serde(default)]
+    pub deploy_permission: Option<bool>,
+    #[serde(default)]
+    pub private: Option<bool>,
+    #[serde(default)]
+    pub official: Option<bool>,
+    #[serde(default)]
+    pub production: Option<bool>,
+    #[serde(default)]
+    pub pinned: Option<bool>,
+    #[serde(default)]
+    pub view_public: Option<bool>,
+    #[serde(default)]
+    pub repo_config_available: Option<bool>,
+    #[serde(default)]
+    pub tracking_enabled: Option<bool>,
 }
 
 #[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
@@ -271,6 +317,7 @@ pub fn fixture_skills() -> Vec<SkillRecord> {
                 installed: true,
                 compatible_agents: strings(["codex", "claude"]),
                 source_status: Some("internal".to_string()),
+                ..SkillMetadata::default()
             },
             error: None,
         },
