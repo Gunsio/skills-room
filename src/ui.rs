@@ -50,13 +50,18 @@ pub fn render(app: &App, frame: &mut Frame<'_>) {
     }
 }
 
-pub(crate) fn render_loading(frame: &mut Frame<'_>, phase: usize) {
+pub(crate) fn render_loading(frame: &mut Frame<'_>, phase: usize, visible_steps: usize) {
     let area = frame.area();
     let theme = crate::theme::ThemeRegistry::get(crate::config::ThemeName::TokyoNight);
     let popup = centered_rect(area, 84, 66);
-    let frames = ["-", "\\", "|", "/"];
+    let frames = ["/", "-", "\\", "|"];
     let spinner = frames[phase % frames.len()];
-    let lines = vec![
+    let steps = [
+        ("1 ", "scan configured skill roots"),
+        ("2 ", "discover AgentBuddy Space list"),
+        ("3 ", "build dashboard; wait for selection"),
+    ];
+    let mut lines = vec![
         Line::from(Span::styled("Skillroom", theme.title())),
         Line::from(""),
         Line::from(vec![
@@ -66,18 +71,18 @@ pub(crate) fn render_loading(frame: &mut Frame<'_>, phase: usize) {
             Span::styled("in progress", theme.success()),
         ]),
         Line::from(""),
-        Line::from(vec![
-            Span::styled("1 ", theme.title()),
-            Span::styled("scan configured skill roots", theme.muted()),
-        ]),
-        Line::from(vec![
-            Span::styled("2 ", theme.title()),
-            Span::styled("load config, themes, language", theme.muted()),
-        ]),
-        Line::from(vec![
-            Span::styled("3 ", theme.title()),
-            Span::styled("build dashboard; no writes", theme.muted()),
-        ]),
+    ];
+    for (index, (number, label)) in steps.into_iter().enumerate() {
+        if index < visible_steps {
+            lines.push(Line::from(vec![
+                Span::styled(number, theme.title()),
+                Span::styled(label, theme.muted()),
+            ]));
+        } else {
+            lines.push(Line::from(""));
+        }
+    }
+    lines.extend([
         Line::from(""),
         Line::from(vec![
             Span::styled("<q> ", theme.info()),
@@ -85,7 +90,7 @@ pub(crate) fn render_loading(frame: &mut Frame<'_>, phase: usize) {
             Span::styled("<ctrl-c> ", theme.info()),
             Span::styled("quit", theme.muted()),
         ]),
-    ];
+    ]);
 
     frame.render_widget(
         Paragraph::new(lines)
@@ -731,7 +736,7 @@ fn render_help(
                     ("tab", "switch focus"),
                     ("/", "search"),
                     ("esc", "clear search"),
-                    ("enter", "exit search"),
+                    ("enter", "select"),
                     ("s/S", "sort"),
                 ],
                 key_style,
@@ -1176,11 +1181,25 @@ mod tests {
 
     #[test]
     fn loading_screen_renders_before_inventory_is_loaded() {
-        let snapshot = render_loading_snapshot(120, 40);
+        let snapshot = render_loading_snapshot(120, 40, 0, 3);
 
         assert!(snapshot.contains("Loading"));
+        assert!(snapshot.contains("/"));
         assert!(snapshot.contains("Loading local skills"));
-        assert!(snapshot.contains("build dashboard; no writes"));
+        assert!(snapshot.contains("build dashboard; wait for selection"));
+    }
+
+    #[test]
+    fn loading_steps_appear_in_sequence() {
+        let first = render_loading_snapshot(120, 40, 1, 1);
+        let second = render_loading_snapshot(120, 40, 2, 2);
+        let third = render_loading_snapshot(120, 40, 3, 3);
+
+        assert!(first.contains("1 scan configured skill roots"));
+        assert!(!first.contains("2 discover AgentBuddy Space list"));
+        assert!(second.contains("2 discover AgentBuddy Space list"));
+        assert!(!second.contains("3 build dashboard; wait for selection"));
+        assert!(third.contains("3 build dashboard; wait for selection"));
     }
 
     fn render_snapshot(width: u16, height: u16) -> String {
@@ -1195,11 +1214,18 @@ mod tests {
         buffer_to_string(terminal.backend().buffer())
     }
 
-    fn render_loading_snapshot(width: u16, height: u16) -> String {
+    fn render_loading_snapshot(
+        width: u16,
+        height: u16,
+        phase: usize,
+        visible_steps: usize,
+    ) -> String {
         let backend = TestBackend::new(width, height);
         let mut terminal = Terminal::new(backend).unwrap();
 
-        terminal.draw(|frame| render_loading(frame, 0)).unwrap();
+        terminal
+            .draw(|frame| render_loading(frame, phase, visible_steps))
+            .unwrap();
         buffer_to_string(terminal.backend().buffer())
     }
 

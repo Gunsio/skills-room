@@ -7,7 +7,8 @@ use ratatui::{DefaultTerminal, Frame};
 use crate::{
     actions::{ActionKind, ActionPlan, ActionPlanner},
     agentbuddy_marketplace::{
-        AgentBuddyMarketplaceAdapter, AgentBuddyMarketplaceConfig, CurlHttpClient, HttpClient,
+        AgentBuddyMarketplaceAdapter, AgentBuddyMarketplaceConfig, AgentBuddySpace, CurlHttpClient,
+        HttpClient,
     },
     config::{AppConfig, LoadedConfig, SourceKind, SourceSettings, SpaceSettings},
     i18n::{I18nCatalog, I18nKey},
@@ -159,8 +160,7 @@ impl App {
         };
 
         let mut app = Self::from_skills_with_config(skills, loaded_config);
-        app.remote_sources_enabled = true;
-        app.load_remote_space_into_table();
+        app.enable_remote_sources_and_load();
         app
     }
 
@@ -232,6 +232,17 @@ impl App {
             remote_sources_enabled: false,
         }
     }
+
+    pub(crate) fn enable_remote_sources_and_load(&mut self) {
+        self.remote_sources_enabled = true;
+        self.discover_remote_spaces();
+        self.load_remote_space_into_table();
+    }
+
+    pub(crate) fn enable_remote_sources(&mut self) {
+        self.remote_sources_enabled = true;
+    }
+
     pub fn run(mut self, mut terminal: DefaultTerminal) -> Result<()> {
         while !self.should_quit {
             terminal.draw(|frame| self.render(frame))?;
@@ -302,6 +313,7 @@ impl App {
             (KeyCode::Char('x'), _) => self.open_action(ActionKind::Remove),
             (KeyCode::Char('h'), _) => self.open_action(ActionKind::OpenPath),
             (KeyCode::Char('y'), _) => self.open_action(ActionKind::CopyPath),
+            (KeyCode::Enter, _) => self.select_current_skill(),
             (KeyCode::Tab, KeyModifiers::SHIFT) => {
                 self.focus = self.focus.previous();
             }
@@ -414,11 +426,33 @@ impl App {
             self.skills.len()
         ));
         if self.remote_sources_enabled {
+            self.discover_remote_spaces();
             self.load_remote_space_into_table();
         }
     }
 
-    fn load_remote_space_into_table(&mut self) {
+    pub(crate) fn discover_remote_spaces(&mut self) {
+        match fetch_available_spaces(&self.config, CurlHttpClient::default()) {
+            Ok(spaces) => {
+                let total = spaces.len();
+                let added = merge_spaces(&mut self.config.spaces, spaces);
+                self.push_output(&format!(
+                    "[space] Discovered {total} selectable Spaces; {added} added to settings."
+                ));
+            }
+            Err(RemoteSpaceLoadError::NoEnabledSource) => {
+                self.push_output("[space] No enabled AgentBuddy source configured.");
+            }
+            Err(RemoteSpaceLoadError::SearchFailed { space_label, error }) => {
+                self.push_output(&format!(
+                    "[space] Space list {space_label} unavailable: {error}."
+                ));
+            }
+            Err(RemoteSpaceLoadError::NoActiveSpace) => {}
+        }
+    }
+
+    pub(crate) fn load_remote_space_into_table(&mut self) {
         match fetch_active_space_records(&self.config, CurlHttpClient::default()) {
             Ok((space_label, records)) => {
                 let total = records.len();
@@ -440,6 +474,35 @@ impl App {
                 ));
             }
         }
+    }
+
+    fn prune_remote_source_records(&mut self) {
+        let source_names = self
+            .config
+            .sources
+            .iter()
+            .filter(|source| source.kind == SourceKind::AgentBuddy)
+            .map(|source| source.name.as_str())
+            .collect::<Vec<_>>();
+        self.skills.retain(|skill| {
+            !skill
+                .metadata
+                .source_status
+                .as_deref()
+                .is_some_and(|status| source_names.iter().any(|source| source == &status))
+        });
+        self.clamp_selection();
+    }
+
+    fn select_current_skill(&mut self) {
+        let Some(skill) = self.selected_skill() else {
+            self.push_output("[select] No visible skill selected.");
+            return;
+        };
+        let name = skill.name.clone();
+        let source = skill.source.label().to_string();
+        self.focus = FocusArea::Details;
+        self.push_output(&format!("[select] {name} selected; source={source}."));
     }
 
     fn clear_filters(&mut self) {
@@ -683,23 +746,15 @@ impl App {
                 self.push_output("[settings] Safety locks remain enabled.");
             }
             SettingsAction::Space => {
-                let next_space = next_active_space(
-                    self.settings.draft.active_space.as_deref(),
-                    &self.settings.draft.spaces,
-                );
-                let label = next_space
-                    .as_ref()
-                    .and_then(|id| {
-                        self.settings
-                            .draft
-                            .spaces
-                            .iter()
-                            .find(|space| &space.id == id)
-                    })
-                    .map(|space| space.label.clone())
-                    .unwrap_or_else(|| "none".to_string());
-                self.settings.draft.active_space = next_space;
-                self.push_output(&format!("[settings] Space -> {label}."));
+                self.settings.draft.active_space = None;
+                self.push_output("[settings] Space -> none.");
+            }
+            SettingsAction::SpaceChoice(index) => {
+                if let Some(space) = self.settings.draft.spaces.get(index) {
+                    let label = space.label.clone();
+                    self.settings.draft.active_space = Some(space.id.clone());
+                    self.push_output(&format!("[settings] Space -> {label}."));
+                }
             }
             SettingsAction::SourceAdd => {
                 let source = if self
@@ -753,6 +808,10 @@ impl App {
                     self.push_output(&format!("[i18n] {error}"));
                 }
                 self.close_settings(true);
+                if self.remote_sources_enabled {
+                    self.prune_remote_source_records();
+                    self.load_remote_space_into_table();
+                }
             }
             Err(error) => {
                 self.push_output(&format!("[settings] Failed to save settings: {error}"));
@@ -916,8 +975,11 @@ impl App {
             SettingsAction::CacheClear,
             SettingsAction::Safety,
             SettingsAction::Space,
-            SettingsAction::SourceAdd,
         ];
+        for index in 0..self.settings.draft.spaces.len() {
+            actions.push(SettingsAction::SpaceChoice(index));
+        }
+        actions.push(SettingsAction::SourceAdd);
         for index in 0..self.settings.draft.sources.len() {
             actions.push(SettingsAction::SourceToggle(index));
             actions.push(SettingsAction::SourceTest(index));
@@ -968,9 +1030,28 @@ impl App {
                 self.text(I18nKey::SettingsSpace),
                 active_space(&self.settings.draft)
                     .map(|space| space.label.clone())
-                    .unwrap_or_else(|| self.text(I18nKey::ValueNoSpace).to_string()),
+                    .unwrap_or_else(|| {
+                        if self.settings.draft.spaces.is_empty() {
+                            self.text(I18nKey::ValueNoSpace).to_string()
+                        } else {
+                            format!("{} discovered", self.settings.draft.spaces.len())
+                        }
+                    }),
                 self.text(I18nKey::HintSpace),
             ),
+            SettingsAction::SpaceChoice(index) => {
+                let space = &self.settings.draft.spaces[index];
+                let selected = self.settings.draft.active_space.as_deref() == Some(&space.id);
+                SettingsRow::new(
+                    format!("Space {}", space.label),
+                    if selected {
+                        "selected".to_string()
+                    } else {
+                        format!("{} skills", space.package_count)
+                    },
+                    "Enter selects space",
+                )
+            }
             SettingsAction::SourceAdd => SettingsRow::new(
                 self.text(I18nKey::SettingsSources),
                 format!(
@@ -1309,18 +1390,8 @@ fn fetch_active_space_records<C: HttpClient>(
         return Err(RemoteSpaceLoadError::NoEnabledSource);
     };
 
-    let default_source_config = AgentBuddyMarketplaceConfig::default();
-    let portal_url = source
-        .portal_url
-        .clone()
-        .unwrap_or_else(|| default_source_config.portal_url.clone());
-    let source_config = AgentBuddyMarketplaceConfig {
-        id: source.name.clone(),
-        api_base: source.url.trim_end_matches('/').to_string(),
-        portal_url,
-        scope: space.scope.clone(),
-        ..default_source_config
-    };
+    let mut source_config = agentbuddy_config(source);
+    source_config.scope = space.scope.clone();
     let adapter = AgentBuddyMarketplaceAdapter::new(source_config, client);
     let mut query = SourceQuery::new("");
     query.scope = Some(space.scope.clone());
@@ -1335,11 +1406,64 @@ fn fetch_active_space_records<C: HttpClient>(
         })
 }
 
+fn fetch_available_spaces<C: HttpClient>(
+    config: &AppConfig,
+    client: C,
+) -> Result<Vec<SpaceSettings>, RemoteSpaceLoadError> {
+    let Some(source) = active_agentbuddy_source(config) else {
+        return Err(RemoteSpaceLoadError::NoEnabledSource);
+    };
+
+    let adapter = AgentBuddyMarketplaceAdapter::new(agentbuddy_config(source), client);
+    adapter
+        .search_spaces(&config.space_search_query)
+        .map(|spaces| {
+            spaces
+                .into_iter()
+                .filter(selectable_space)
+                .map(space_settings_from_agentbuddy)
+                .collect()
+        })
+        .map_err(|error| RemoteSpaceLoadError::SearchFailed {
+            space_label: config.space_search_query.clone(),
+            error,
+        })
+}
+
 fn active_agentbuddy_source(config: &AppConfig) -> Option<&SourceSettings> {
     config
         .sources
         .iter()
         .find(|source| source.enabled && source.kind == SourceKind::AgentBuddy)
+}
+
+fn agentbuddy_config(source: &SourceSettings) -> AgentBuddyMarketplaceConfig {
+    let default_source_config = AgentBuddyMarketplaceConfig::default();
+    let portal_url = source
+        .portal_url
+        .clone()
+        .unwrap_or_else(|| default_source_config.portal_url.clone());
+    AgentBuddyMarketplaceConfig {
+        id: source.name.clone(),
+        api_base: source.url.trim_end_matches('/').to_string(),
+        portal_url,
+        ..default_source_config
+    }
+}
+
+fn selectable_space(space: &AgentBuddySpace) -> bool {
+    space.can_view && space.can_download && space.package_count > 0
+}
+
+fn space_settings_from_agentbuddy(space: AgentBuddySpace) -> SpaceSettings {
+    SpaceSettings {
+        id: space.id,
+        label: space.label,
+        scope: space.scope,
+        url: space.url,
+        package_count: space.package_count,
+        enabled: true,
+    }
 }
 
 fn merge_remote_records(skills: &mut Vec<SkillRecord>, records: Vec<SkillRecord>) -> usize {
@@ -1353,22 +1477,21 @@ fn merge_remote_records(skills: &mut Vec<SkillRecord>, records: Vec<SkillRecord>
     skills.len().saturating_sub(before)
 }
 
-fn next_active_space(current: Option<&str>, spaces: &[SpaceSettings]) -> Option<String> {
-    let enabled = spaces
-        .iter()
-        .filter(|space| space.enabled)
-        .collect::<Vec<_>>();
-    if enabled.is_empty() {
-        return None;
-    }
-
-    match current.and_then(|active| enabled.iter().position(|space| space.id == active)) {
-        None => enabled.first().map(|space| space.id.clone()),
-        Some(index) if index + 1 < enabled.len() => {
-            enabled.get(index + 1).map(|space| space.id.clone())
+fn merge_spaces(spaces: &mut Vec<SpaceSettings>, discovered: Vec<SpaceSettings>) -> usize {
+    let before = spaces.len();
+    for space in discovered {
+        match spaces.iter_mut().find(|existing| existing.id == space.id) {
+            Some(existing) => *existing = space,
+            None => spaces.push(space),
         }
-        Some(_) => None,
     }
+    spaces.sort_by(|left, right| {
+        right
+            .package_count
+            .cmp(&left.package_count)
+            .then_with(|| left.label.cmp(&right.label))
+    });
+    spaces.len().saturating_sub(before)
 }
 
 fn safety_summary(
@@ -1429,6 +1552,7 @@ enum SettingsAction {
     CacheClear,
     Safety,
     Space,
+    SpaceChoice(usize),
     SourceAdd,
     SourceToggle(usize),
     SourceTest(usize),
@@ -1468,7 +1592,7 @@ mod tests {
     use super::*;
     use crate::{
         agentbuddy_marketplace::{HttpResponse, MockHttpClient},
-        config::{Language, SafetySettings, ThemeName, load_or_default},
+        config::{Language, SafetySettings, SpaceSettings, ThemeName, load_or_default},
         i18n::I18nKey,
         runner::{ActionRunner, MockActionRunner, RunnerEvent},
     };
@@ -1696,6 +1820,21 @@ mod tests {
     }
 
     #[test]
+    fn enter_selects_current_skill_and_focuses_details() {
+        let mut app = App::default();
+        let selected = app.selected_skill().unwrap().name.clone();
+
+        app.handle_key(KeyEvent::from(KeyCode::Enter));
+
+        assert_eq!(app.focus(), FocusArea::Details);
+        assert!(
+            app.output()
+                .iter()
+                .any(|line| line.contains("[select]") && line.contains(&selected))
+        );
+    }
+
+    #[test]
     fn refresh_key_reloads_inventory_without_changing_command_mode() {
         let mut app = App::default();
 
@@ -1891,19 +2030,22 @@ mod tests {
     }
 
     #[test]
-    fn settings_space_cycles_and_persists_without_startup_args() {
+    fn settings_space_selects_discovered_space_without_startup_args() {
         let temp = tempdir().unwrap();
         let path = temp.path().join("config.toml");
         let mut app = App::from_skills_with_config(
             fixture_skills(),
             LoadedConfig {
                 path: path.clone(),
-                config: AppConfig::default(),
+                config: AppConfig {
+                    spaces: vec![SpaceSettings::qianchuan_fe()],
+                    ..AppConfig::default()
+                },
                 warnings: Vec::new(),
             },
         );
 
-        assert_eq!(app.active_space_label(), Some("qianchuan/fe"));
+        assert_eq!(app.active_space_label(), None);
 
         app.handle_key(KeyEvent::from(KeyCode::Char(',')));
         move_to_setting(&mut app, "Space");
@@ -1916,6 +2058,7 @@ mod tests {
                 .any(|line| line.contains("Space -> none"))
         );
 
+        move_to_setting(&mut app, "Space qianchuan/fe");
         app.handle_key(KeyEvent::from(KeyCode::Enter));
         assert_eq!(
             app.settings.draft.active_space.as_deref(),
@@ -1935,9 +2078,14 @@ mod tests {
             200,
             r#"{"count":15,"data":[{"identifier":"skills:skills.byted.org/qianchuan/fe/qc-component-workflow","name":"qc-component-workflow","description":"component workflow","newest_version":{"version":"1.0.1"},"namespace":"skills.byted.org/qianchuan/fe","stars":2,"download_total":96,"no_permission":false}]}"#,
         ))]);
+        let config = AppConfig {
+            active_space: Some("qianchuan-fe".to_string()),
+            spaces: vec![SpaceSettings::qianchuan_fe()],
+            ..AppConfig::default()
+        };
 
-        let (space_label, records) = fetch_active_space_records(&AppConfig::default(), &client)
-            .expect("active space records should load");
+        let (space_label, records) =
+            fetch_active_space_records(&config, &client).expect("active space records should load");
 
         assert_eq!(space_label, "qianchuan/fe");
         assert_eq!(records.len(), 1);
@@ -1958,7 +2106,11 @@ mod tests {
 
     #[test]
     fn active_space_fetch_requires_enabled_agentbuddy_source() {
-        let mut config = AppConfig::default();
+        let mut config = AppConfig {
+            active_space: Some("qianchuan-fe".to_string()),
+            spaces: vec![SpaceSettings::qianchuan_fe()],
+            ..AppConfig::default()
+        };
         config.sources[0].enabled = false;
         let client = MockHttpClient::default();
 
@@ -1966,6 +2118,26 @@ mod tests {
 
         assert!(matches!(error, RemoteSpaceLoadError::NoEnabledSource));
         assert!(client.urls().is_empty());
+    }
+
+    #[test]
+    fn space_discovery_keeps_only_selectable_agentbuddy_spaces() {
+        let client = MockHttpClient::new(vec![Ok(HttpResponse::json(
+            200,
+            r#"{"data":[{"name":"skills.byted.org/qianchuan/pc","package_count":0,"user_permission":{"view":false,"download":false}},{"name":"skills.byted.org/qianchuan_marketing/ai","package_count":4,"user_permission":{"view":false,"download":false}},{"name":"skills.byted.org/qianchuan/fe","package_count":15,"user_permission":{"view":true,"download":true}}]}"#,
+        ))]);
+
+        let spaces = fetch_available_spaces(&AppConfig::default(), &client)
+            .expect("space discovery should parse AgentBuddy response");
+
+        assert_eq!(spaces.len(), 1);
+        assert_eq!(spaces[0].id, "qianchuan-fe");
+        assert_eq!(spaces[0].label, "qianchuan/fe");
+        assert_eq!(spaces[0].package_count, 15);
+        assert_eq!(
+            client.urls()[0],
+            "https://artifact-api.byted.org/api/v1/group/search/skills?q=qianchuan&page=1&page_size=30"
+        );
     }
 
     #[test]

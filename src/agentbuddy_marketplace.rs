@@ -16,6 +16,7 @@ use crate::{
 pub const DEFAULT_AGENTBUDDY_API_BASE: &str = "https://artifact-api.byted.org";
 pub const DEFAULT_AGENTBUDDY_SEARCH_PATH: &str = "/api/v1/package/search/skills";
 pub const DEFAULT_AGENTBUDDY_DETAIL_PATH: &str = "/api/v1/package";
+pub const DEFAULT_AGENTBUDDY_SPACE_SEARCH_PATH: &str = "/api/v1/group/search/skills";
 pub const DEFAULT_AGENTBUDDY_SCOPE: &str = "skills.byted.org/default/public";
 
 #[derive(Debug, Clone, Eq, PartialEq)]
@@ -25,6 +26,7 @@ pub struct AgentBuddyMarketplaceConfig {
     pub portal_url: String,
     pub search_path: String,
     pub detail_path: String,
+    pub space_search_path: String,
     pub scope: String,
 }
 
@@ -36,6 +38,7 @@ impl Default for AgentBuddyMarketplaceConfig {
             portal_url: "https://skills.bytedance.net/".to_string(),
             search_path: DEFAULT_AGENTBUDDY_SEARCH_PATH.to_string(),
             detail_path: DEFAULT_AGENTBUDDY_DETAIL_PATH.to_string(),
+            space_search_path: DEFAULT_AGENTBUDDY_SPACE_SEARCH_PATH.to_string(),
             scope: DEFAULT_AGENTBUDDY_SCOPE.to_string(),
         }
     }
@@ -54,6 +57,42 @@ impl<C> AgentBuddyMarketplaceAdapter<C> {
 
     pub fn config(&self) -> &AgentBuddyMarketplaceConfig {
         &self.config
+    }
+}
+
+impl<C: HttpClient> AgentBuddyMarketplaceAdapter<C> {
+    pub fn search_spaces(&self, term: &str) -> SourceAdapterResult<Vec<AgentBuddySpace>> {
+        let url = self.space_search_url(term);
+        let response = self
+            .client
+            .get(&url)
+            .map_err(|error| SourceError::new(SourceErrorKind::NetworkDegraded, error.message))?;
+        if response.status >= 400 {
+            return Err(SourceError::from_http_status(
+                response.status,
+                "agentbuddy space search",
+            ));
+        }
+
+        let value: Value = serde_json::from_str(&response.body)
+            .map_err(|error| SourceError::new(SourceErrorKind::Schema, error.to_string()))?;
+        let items = extract_items(&value).ok_or_else(|| {
+            SourceError::new(
+                SourceErrorKind::Schema,
+                "space search response missing items",
+            )
+        })?;
+        let mut spaces = items
+            .iter()
+            .map(agentbuddy_space)
+            .collect::<SourceAdapterResult<Vec<_>>>()?;
+        spaces.sort_by(|left, right| {
+            right
+                .package_count
+                .cmp(&left.package_count)
+                .then_with(|| left.label.cmp(&right.label))
+        });
+        Ok(spaces)
     }
 }
 
@@ -165,6 +204,26 @@ impl<C> AgentBuddyMarketplaceAdapter<C> {
             encode_query(&request.id)
         )
     }
+
+    fn space_search_url(&self, term: &str) -> String {
+        format!(
+            "{}{}?q={}&page=1&page_size=30",
+            self.config.api_base.trim_end_matches('/'),
+            self.config.space_search_path,
+            encode_query(term.trim())
+        )
+    }
+}
+
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct AgentBuddySpace {
+    pub id: String,
+    pub label: String,
+    pub scope: String,
+    pub url: String,
+    pub package_count: usize,
+    pub can_view: bool,
+    pub can_download: bool,
 }
 
 pub trait HttpClient {
@@ -366,6 +425,55 @@ fn marketplace_skill_record(
     })
 }
 
+fn agentbuddy_space(item: &Value) -> SourceAdapterResult<AgentBuddySpace> {
+    let scope = string_field(item, &["name", "namespace"]).ok_or_else(|| {
+        SourceError::new(
+            SourceErrorKind::Schema,
+            "agentbuddy space missing namespace",
+        )
+    })?;
+    let label = space_label_from_scope(&scope);
+    let package_count = unsigned_field(item, &["package_count"]).unwrap_or_default() as usize;
+    let can_view = item
+        .pointer("/user_permission/view")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    let can_download = item
+        .pointer("/user_permission/download")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+
+    Ok(AgentBuddySpace {
+        id: space_id_from_scope(&scope),
+        label,
+        url: format!("https://skills.bytedance.net/space/{scope}"),
+        scope,
+        package_count,
+        can_view,
+        can_download,
+    })
+}
+
+fn space_id_from_scope(scope: &str) -> String {
+    space_label_from_scope(scope)
+        .chars()
+        .map(|character| {
+            if character.is_ascii_alphanumeric() || character == '-' || character == '_' {
+                character
+            } else {
+                '-'
+            }
+        })
+        .collect()
+}
+
+fn space_label_from_scope(scope: &str) -> String {
+    scope
+        .strip_prefix("skills.byted.org/")
+        .unwrap_or(scope)
+        .to_string()
+}
+
 fn sort_marketplace_records(records: &mut [SkillRecord], order: SourceOrder) {
     match order {
         SourceOrder::StarDesc => records.sort_by(|left, right| {
@@ -545,6 +653,30 @@ mod tests {
         );
         assert_eq!(records[0].metadata.star_count, Some(99));
         assert!(records[0].metadata.installable);
+    }
+
+    #[test]
+    fn search_spaces_builds_group_search_request_and_maps_permissions() {
+        let client = MockHttpClient::new(vec![Ok(HttpResponse::json(
+            200,
+            r#"{"data":[{"name":"skills.byted.org/qianchuan/pc","package_count":0,"user_permission":{"view":false,"download":false}},{"name":"skills.byted.org/qianchuan/fe","package_count":15,"user_permission":{"view":true,"download":true}}]}"#,
+        ))]);
+        let adapter =
+            AgentBuddyMarketplaceAdapter::new(AgentBuddyMarketplaceConfig::default(), client);
+
+        let spaces = adapter.search_spaces("qianchuan").unwrap();
+
+        assert_eq!(spaces.len(), 2);
+        assert_eq!(spaces[0].id, "qianchuan-fe");
+        assert_eq!(spaces[0].label, "qianchuan/fe");
+        assert_eq!(spaces[0].scope, "skills.byted.org/qianchuan/fe");
+        assert_eq!(spaces[0].package_count, 15);
+        assert!(spaces[0].can_view);
+        assert!(spaces[0].can_download);
+        assert_eq!(
+            adapter.client.urls()[0],
+            "https://artifact-api.byted.org/api/v1/group/search/skills?q=qianchuan&page=1&page_size=30"
+        );
     }
 
     #[test]

@@ -17,7 +17,9 @@ pub struct AppConfig {
     pub safety: SafetySettings,
     #[serde(default)]
     pub active_space: Option<String>,
-    #[serde(default = "default_spaces")]
+    #[serde(default = "default_space_search_query")]
+    pub space_search_query: String,
+    #[serde(default)]
     pub spaces: Vec<SpaceSettings>,
     pub sources: Vec<SourceSettings>,
 }
@@ -30,8 +32,9 @@ impl Default for AppConfig {
             language: Language::EnUs,
             cache: CacheSettings::default(),
             safety: SafetySettings::default(),
-            active_space: Some(SpaceSettings::qianchuan_fe().id),
-            spaces: default_spaces(),
+            active_space: None,
+            space_search_query: default_space_search_query(),
+            spaces: Vec::new(),
             sources: vec![SourceSettings::bytedance()],
         }
     }
@@ -61,8 +64,8 @@ impl AppConfig {
             warnings.push(ConfigWarning::DefaultSourceRestored);
             self.sources.push(SourceSettings::bytedance());
         }
-        if self.spaces.is_empty() {
-            self.spaces = default_spaces();
+        if self.space_search_query.trim().is_empty() {
+            self.space_search_query = default_space_search_query();
         }
         for space in &mut self.spaces {
             space.normalize();
@@ -73,11 +76,7 @@ impl AppConfig {
                 .iter()
                 .any(|space| space.enabled && &space.id == active)
         }) {
-            self.active_space = self
-                .spaces
-                .iter()
-                .find(|space| space.enabled)
-                .map(|space| space.id.clone());
+            self.active_space = None;
         }
         for source in &mut self.sources {
             if source.name == "skills.bytedance.net"
@@ -94,8 +93,8 @@ impl AppConfig {
     }
 }
 
-fn default_spaces() -> Vec<SpaceSettings> {
-    vec![SpaceSettings::qianchuan_fe()]
+fn default_space_search_query() -> String {
+    "qianchuan".to_string()
 }
 
 #[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
@@ -104,6 +103,8 @@ pub struct SpaceSettings {
     pub label: String,
     pub scope: String,
     pub url: String,
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub package_count: usize,
     pub enabled: bool,
 }
 
@@ -114,16 +115,33 @@ impl SpaceSettings {
             label: "qianchuan/fe".to_string(),
             scope: "skills.byted.org/qianchuan/fe".to_string(),
             url: "https://skills.bytedance.net/space/skills.byted.org/qianchuan/fe".to_string(),
+            package_count: 15,
+            enabled: true,
+        }
+    }
+
+    pub fn discovered(
+        scope: impl Into<String>,
+        label: impl Into<String>,
+        package_count: usize,
+    ) -> Self {
+        let scope = scope.into();
+        Self {
+            id: space_id_from_scope(&scope),
+            label: label.into(),
+            url: format!("https://skills.bytedance.net/space/{scope}"),
+            scope,
+            package_count,
             enabled: true,
         }
     }
 
     fn normalize(&mut self) {
         if self.id.trim().is_empty() {
-            self.id = self.scope.replace('/', "-");
+            self.id = space_id_from_scope(&self.scope);
         }
         if self.label.trim().is_empty() {
-            self.label = self.scope.clone();
+            self.label = space_label_from_scope(&self.scope);
         }
         if self.scope.trim().is_empty() {
             self.scope = "skills.byted.org/default/public".to_string();
@@ -132,6 +150,30 @@ impl SpaceSettings {
             self.url = format!("https://skills.bytedance.net/space/{}", self.scope);
         }
     }
+}
+
+fn is_zero(value: &usize) -> bool {
+    *value == 0
+}
+
+fn space_id_from_scope(scope: &str) -> String {
+    space_label_from_scope(scope)
+        .chars()
+        .map(|character| {
+            if character.is_ascii_alphanumeric() || character == '-' || character == '_' {
+                character
+            } else {
+                '-'
+            }
+        })
+        .collect()
+}
+
+fn space_label_from_scope(scope: &str) -> String {
+    scope
+        .strip_prefix("skills.byted.org/")
+        .unwrap_or(scope)
+        .to_string()
 }
 
 #[derive(Debug, Clone, Copy, Default, Eq, PartialEq, Serialize, Deserialize)]
@@ -493,14 +535,9 @@ mod tests {
             config.sources[0].portal_url.as_deref(),
             Some("https://skills.bytedance.net/")
         );
-        assert_eq!(config.active_space.as_deref(), Some("qianchuan-fe"));
-        assert_eq!(config.spaces.len(), 1);
-        assert_eq!(config.spaces[0].label, "qianchuan/fe");
-        assert_eq!(config.spaces[0].scope, "skills.byted.org/qianchuan/fe");
-        assert_eq!(
-            config.spaces[0].url,
-            "https://skills.bytedance.net/space/skills.byted.org/qianchuan/fe"
-        );
+        assert_eq!(config.active_space, None);
+        assert_eq!(config.space_search_query, "qianchuan");
+        assert!(config.spaces.is_empty());
     }
 
     #[test]
@@ -522,7 +559,7 @@ mod tests {
     }
 
     #[test]
-    fn normalization_restores_default_active_space_for_legacy_config() {
+    fn normalization_keeps_space_selection_empty_until_discovery() {
         let config = AppConfig {
             active_space: None,
             spaces: Vec::new(),
@@ -532,8 +569,8 @@ mod tests {
         let (normalized, warnings) = config.normalized();
 
         assert!(warnings.is_empty());
-        assert_eq!(normalized.active_space.as_deref(), Some("qianchuan-fe"));
-        assert_eq!(normalized.spaces[0].label, "qianchuan/fe");
+        assert_eq!(normalized.active_space, None);
+        assert!(normalized.spaces.is_empty());
     }
 
     #[test]

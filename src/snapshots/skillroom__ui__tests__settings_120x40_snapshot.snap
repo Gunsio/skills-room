@@ -1,10 +1,9 @@
 ---
 source: src/ui.rs
-assertion_line: 1081
 expression: "render_settings_snapshot(120, 40)"
 ---
 ╭──────────────────────────────────────────────────────────────────────────────────╮╭Filters───────────────────────────╮
-│ / Search skills...                                                               ││Space qianchuan/fe                │
+│ / Search skills...                                                               ││None                              │
 ╰──────────────────────────────────────────────────────────────────────────────────╯╰──────────────────────────────────╯
 
 ╭Skills──────────────────────────────────────────────────────────────────────────╮╭Details─────────────────────────────╮
@@ -18,7 +17,7 @@ expression: "render_settings_snapshot(120, 40)"
 │                │  Cache TTL                     1800s  Enter cycles TTL                             │                │
 │                │  Cache                         ready  Enter clears cache state                     │s/code-review   │
 │                │  Safety                        locked  Cannot disable guard rails                  │                │
-│                │  Space                         qianchuan/fe  Enter cycles configured spaces        │                │
+│                │  Space                         none  Enter clears selected space                   │                │
 │                │  Sources                       1 configured  Enter adds disabled source            │                │
 │                │  Source bytedance-agentbuddy   enabled  Enter toggles source                       │, agent-2]      │
 │                │  Test bytedance-agentbuddy     not-tested  Enter dry-runs source                   │                │
@@ -37,8 +36,8 @@ expression: "render_settings_snapshot(120, 40)"
 │                │                                                                                    │                │
 ╰────────────────│                                                                                    │────────────────╯
 5 visible skills ╰────────────────────────────────────────────────────────────────────────────────────╯
-Space qianchuan/fe | Remote scope skills.byted.org/qianchuan/fe | Filter none | Source all | Skill scope all scopes
-General   : q: quit R: refresh tab: switch focus /: search esc: clear search enter: exit search s/S: sort
+Space none | Remote scope local only | Filter none | Source all | Skill scope all scopes
+General   : q: quit R: refresh tab: switch focus /: search esc: clear search enter: select s/S: sort
 Navigation: j/↓: cursor down k/↑: cursor up PageUp: prev page PageDown: next page g: go to top G: go to bottom
 Filter    : a: all f: source i: local o: updates v: active
 Commands  : h: open path t: install u: update U: update all x: remove y: copy path ,: settings
