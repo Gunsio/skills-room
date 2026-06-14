@@ -8,6 +8,7 @@ use crate::{
     actions::{ActionKind, ActionPlan, ActionPlanner},
     config::{AppConfig, LoadedConfig, SourceKind, SourceSettings},
     i18n::{I18nCatalog, I18nKey},
+    runner::{ActionRunner, RunnerEvent, RunningAction},
     skill::{RiskLevel, SkillRecord, SkillScope, SkillState, Source, fixture_skills},
     theme::{ThemePalette, ThemeRegistry},
 };
@@ -28,6 +29,8 @@ pub struct App {
     stream_tick: usize,
     stream_cursor: usize,
     pending_action: Option<ActionConfirmation>,
+    running_actions: Vec<RunningAction>,
+    runner: ActionRunner,
     config_path: PathBuf,
     config: AppConfig,
     i18n: I18nCatalog,
@@ -212,6 +215,8 @@ impl App {
             stream_tick: 0,
             stream_cursor: 0,
             pending_action: None,
+            running_actions: Vec::new(),
+            runner: ActionRunner::for_environment(),
             config_path: loaded_config.path,
             config,
             i18n,
@@ -392,6 +397,12 @@ impl App {
         };
 
         match plan {
+            Ok(plan) if self.is_action_locked(&plan) => {
+                self.push_output(&format!(
+                    "[lock] {} already has a running write operation.",
+                    plan.skill_name
+                ));
+            }
             Ok(plan) if plan.confirmation_token.is_some() => {
                 self.push_plan_summary(&plan);
                 self.pending_action = Some(ActionConfirmation {
@@ -410,6 +421,14 @@ impl App {
         }
     }
 
+    fn is_action_locked(&self, plan: &ActionPlan) -> bool {
+        plan.is_write()
+            && self
+                .running_actions
+                .iter()
+                .any(|action| action.target_key == plan.target_key)
+    }
+
     fn confirm_pending_action(&mut self) {
         let Some(confirmation) = self.pending_action.take() else {
             return;
@@ -424,12 +443,35 @@ impl App {
             return;
         }
 
-        self.push_output(&format!(
-            "[action] Confirmed {}; waiting for runner.",
-            confirmation.plan.title
-        ));
-        for command in confirmation.plan.command_lines() {
-            self.push_output(&format!("[argv] {command}"));
+        self.start_action(confirmation.plan);
+    }
+
+    fn start_action(&mut self, plan: ActionPlan) {
+        if plan.is_write()
+            && self
+                .running_actions
+                .iter()
+                .any(|action| action.target_key == plan.target_key)
+        {
+            self.push_output(&format!(
+                "[lock] {} already has a running write operation.",
+                plan.skill_name
+            ));
+            return;
+        }
+
+        let title = plan.title.clone();
+        match self.runner.start(plan) {
+            Ok(running) => {
+                self.push_output(&format!("[action] Started {title}."));
+                self.running_actions.push(running);
+            }
+            Err(error) => {
+                self.push_output(&format!(
+                    "[action] Failed to start {title}: {}",
+                    error.message
+                ));
+            }
         }
     }
 
@@ -873,6 +915,10 @@ impl App {
     }
 
     fn tick(&mut self) {
+        if self.drain_running_actions() {
+            return;
+        }
+
         self.stream_tick = self.stream_tick.saturating_add(1);
         if !self.stream_tick.is_multiple_of(Self::STREAM_INTERVAL_TICKS) {
             return;
@@ -881,6 +927,148 @@ impl App {
         let message = Self::STREAM_MESSAGES[self.stream_cursor % Self::STREAM_MESSAGES.len()];
         self.stream_cursor = self.stream_cursor.saturating_add(1);
         self.push_output(message);
+    }
+
+    fn drain_running_actions(&mut self) -> bool {
+        let mut outputs = Vec::new();
+        let mut completions = Vec::new();
+
+        for action in &mut self.running_actions {
+            for event in action.drain_events() {
+                match event {
+                    RunnerEvent::Started { argv } => {
+                        outputs.push(format!("[run] {}: {}", action.title, argv.join(" ")));
+                    }
+                    RunnerEvent::Stdout(line) => outputs.push(format!("[stdout] {line}")),
+                    RunnerEvent::Stderr(line) => outputs.push(format!("[stderr] {line}")),
+                    RunnerEvent::CommandExit { argv, code } => {
+                        outputs.push(format!(
+                            "[exit] {} -> {}",
+                            argv.join(" "),
+                            exit_code_label(code)
+                        ));
+                    }
+                    RunnerEvent::Finished { code } => {
+                        let success = code == Some(0);
+                        if success {
+                            outputs.push(format!("[action] Finished {}.", action.title));
+                        } else {
+                            outputs.push(format!(
+                                "[action] Failed {}: exit {}; source={}; argv={}; stderr={}",
+                                action.title,
+                                exit_code_label(code),
+                                action.source_label,
+                                action.command_lines.join(" && "),
+                                action.stderr_summary()
+                            ));
+                        }
+                        completions.push(ActionCompletion {
+                            kind: action.kind,
+                            skill_name: action.skill_name.clone(),
+                            success,
+                            reason: if success {
+                                None
+                            } else {
+                                Some(format!(
+                                    "exit {}; stderr={}",
+                                    exit_code_label(code),
+                                    action.stderr_summary()
+                                ))
+                            },
+                        });
+                    }
+                    RunnerEvent::Failed(reason) => {
+                        outputs.push(format!(
+                            "[action] Failed {}: {}; source={}; argv={}; stderr={}",
+                            action.title,
+                            reason,
+                            action.source_label,
+                            action.command_lines.join(" && "),
+                            action.stderr_summary()
+                        ));
+                        completions.push(ActionCompletion {
+                            kind: action.kind,
+                            skill_name: action.skill_name.clone(),
+                            success: false,
+                            reason: Some(reason),
+                        });
+                    }
+                }
+            }
+        }
+
+        let had_events = !outputs.is_empty();
+        self.running_actions.retain(|action| !action.is_finished());
+
+        for output in outputs {
+            self.push_output(&output);
+        }
+        for completion in completions {
+            self.apply_action_completion(completion);
+        }
+
+        had_events
+    }
+
+    fn apply_action_completion(&mut self, completion: ActionCompletion) {
+        if !completion.success {
+            if let Some(skill) = self
+                .skills
+                .iter_mut()
+                .find(|skill| skill.name == completion.skill_name)
+            {
+                skill.state = SkillState::Error;
+                skill.error = completion.reason;
+            }
+            return;
+        }
+
+        match completion.kind {
+            ActionKind::Install => {
+                if let Some(skill) = self
+                    .skills
+                    .iter_mut()
+                    .find(|skill| skill.name == completion.skill_name)
+                {
+                    skill.state = SkillState::Installed;
+                    skill.metadata.installed = true;
+                    skill.error = None;
+                }
+            }
+            ActionKind::UpdateSelected => {
+                if let Some(skill) = self
+                    .skills
+                    .iter_mut()
+                    .find(|skill| skill.name == completion.skill_name)
+                {
+                    skill.state = SkillState::Ready;
+                    skill.update = Some("current".to_string());
+                    skill.error = None;
+                }
+            }
+            ActionKind::UpdateAll => {
+                for skill in &mut self.skills {
+                    if skill.state == SkillState::UpdateAvailable {
+                        skill.state = SkillState::Ready;
+                        skill.update = Some("current".to_string());
+                        skill.error = None;
+                    }
+                }
+            }
+            ActionKind::Remove => {
+                if let Some(skill) = self
+                    .skills
+                    .iter_mut()
+                    .find(|skill| skill.name == completion.skill_name)
+                {
+                    skill.state = SkillState::RemoteOnly;
+                    skill.metadata.installed = false;
+                    skill.update = Some("remote".to_string());
+                    skill.error = None;
+                }
+            }
+            ActionKind::OpenPath | ActionKind::CopyPath => {}
+        }
     }
 
     fn push_output(&mut self, message: &str) {
@@ -948,6 +1136,14 @@ struct SettingsState {
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
+struct ActionCompletion {
+    kind: ActionKind,
+    skill_name: String,
+    success: bool,
+    reason: Option<String>,
+}
+
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub(crate) struct ActionConfirmation {
     pub plan: ActionPlan,
     pub input: String,
@@ -990,12 +1186,17 @@ fn contains_case_insensitive(haystack: &str, needle: &str) -> bool {
         .contains(&needle.to_ascii_lowercase())
 }
 
+fn exit_code_label(code: Option<i32>) -> String {
+    code.map_or_else(|| "signal".to_string(), |code| code.to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::{
         config::{Language, SafetySettings, ThemeName, load_or_default},
         i18n::I18nKey,
+        runner::{ActionRunner, MockActionRunner, RunnerEvent},
     };
     use tempfile::tempdir;
 
@@ -1402,9 +1603,7 @@ mod tests {
     fn install_action_requires_typed_confirmation() {
         let mut app = App::default();
 
-        app.handle_key(KeyEvent::from(KeyCode::Down));
-        app.handle_key(KeyEvent::from(KeyCode::Down));
-        app.handle_key(KeyEvent::from(KeyCode::Down));
+        move_to_skill(&mut app, "taproom");
         app.handle_key(KeyEvent::from(KeyCode::Char('i')));
 
         assert!(app.pending_action().is_some());
@@ -1445,8 +1644,28 @@ mod tests {
         assert!(
             app.output()
                 .iter()
-                .any(|line| line.contains("Confirmed Install taproom"))
+                .any(|line| line.contains("Started Install taproom"))
         );
+
+        app.tick();
+        assert!(
+            app.output()
+                .iter()
+                .any(|line| line.contains("[run] Install taproom"))
+        );
+        app.tick();
+        assert!(
+            app.output()
+                .iter()
+                .any(|line| line.contains("[stdout] mock runner accepted argv"))
+        );
+        app.tick();
+        assert!(
+            app.output()
+                .iter()
+                .any(|line| line.contains("Finished Install taproom"))
+        );
+        assert_eq!(app.selected_skill().unwrap().state, SkillState::Installed);
     }
 
     #[test]
@@ -1504,6 +1723,61 @@ mod tests {
     }
 
     #[test]
+    fn running_action_lock_blocks_duplicate_write_for_same_skill() {
+        let mut app = App::default();
+
+        move_to_skill(&mut app, "taproom");
+        app.handle_key(KeyEvent::from(KeyCode::Char('i')));
+        for character in "INSTALL".chars() {
+            app.handle_key(KeyEvent::from(KeyCode::Char(character)));
+        }
+        app.handle_key(KeyEvent::from(KeyCode::Enter));
+        app.handle_key(KeyEvent::from(KeyCode::Char('u')));
+
+        assert!(app.pending_action().is_none());
+        assert!(
+            app.output()
+                .iter()
+                .any(|line| line.contains("already has a running write operation"))
+        );
+    }
+
+    #[test]
+    fn failed_runner_preserves_stderr_source_argv_and_marks_skill_error() {
+        let mut app = App::default();
+        app.runner = ActionRunner::Mock(MockActionRunner::new(vec![
+            RunnerEvent::Stderr("permission denied".to_string()),
+            RunnerEvent::Finished { code: Some(2) },
+        ]));
+
+        move_to_skill(&mut app, "taproom");
+        app.handle_key(KeyEvent::from(KeyCode::Char('i')));
+        for character in "INSTALL".chars() {
+            app.handle_key(KeyEvent::from(KeyCode::Char(character)));
+        }
+        app.handle_key(KeyEvent::from(KeyCode::Enter));
+        app.tick();
+        app.tick();
+        app.tick();
+
+        assert!(app.output().iter().any(|line| {
+            line.contains("Failed Install taproom")
+                && line.contains("source=local/git")
+                && line.contains("argv=skillroom install taproom")
+                && line.contains("stderr=permission denied")
+        }));
+        let skill = app.selected_skill().unwrap();
+        assert_eq!(skill.state, SkillState::Error);
+        assert!(
+            skill
+                .error
+                .as_deref()
+                .unwrap_or_default()
+                .contains("permission denied")
+        );
+    }
+
+    #[test]
     fn configured_theme_drives_palette() {
         let app = App::from_skills_with_config(
             fixture_skills(),
@@ -1531,6 +1805,21 @@ mod tests {
             app.handle_key(KeyEvent::from(KeyCode::Down));
         }
         while app.settings_selected() > target {
+            app.handle_key(KeyEvent::from(KeyCode::Up));
+        }
+    }
+
+    fn move_to_skill(app: &mut App, name: &str) {
+        let target = app
+            .visible_skills()
+            .iter()
+            .position(|(_, skill)| skill.name == name)
+            .unwrap_or_else(|| panic!("missing skill {name}"));
+
+        while app.selected_index() < target {
+            app.handle_key(KeyEvent::from(KeyCode::Down));
+        }
+        while app.selected_index() > target {
             app.handle_key(KeyEvent::from(KeyCode::Up));
         }
     }

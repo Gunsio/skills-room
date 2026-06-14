@@ -9,6 +9,7 @@ pub mod inventory;
 pub mod loaders;
 pub mod local_inventory;
 pub mod parser;
+pub mod runner;
 pub mod scan;
 pub mod source;
 pub mod source_check;

@@ -326,7 +326,7 @@ impl ActionPlanner {
             commands,
             skipped: Vec::new(),
             confirmation_token: kind.confirmation_token(),
-            target_key: format!("{}:{}", kind.label(), skill.name),
+            target_key: format!("skill:{}", skill.name),
         }
     }
 }
