@@ -6,7 +6,7 @@ use ratatui::{DefaultTerminal, Frame};
 
 use crate::{
     actions::{ActionKind, ActionPlan, ActionPlanner},
-    config::{AppConfig, LoadedConfig, SourceKind, SourceSettings},
+    config::{AppConfig, LoadedConfig, SourceKind, SourceSettings, SpaceSettings},
     i18n::{I18nCatalog, I18nKey},
     runner::{ActionRunner, RunnerEvent, RunningAction},
     skill::{RiskLevel, SkillRecord, SkillScope, SkillState, Source, fixture_skills},
@@ -646,6 +646,25 @@ impl App {
                 self.settings.draft.safety.home_delete_guard = true;
                 self.push_output("[settings] Safety locks remain enabled.");
             }
+            SettingsAction::Space => {
+                let next_space = next_active_space(
+                    self.settings.draft.active_space.as_deref(),
+                    &self.settings.draft.spaces,
+                );
+                let label = next_space
+                    .as_ref()
+                    .and_then(|id| {
+                        self.settings
+                            .draft
+                            .spaces
+                            .iter()
+                            .find(|space| &space.id == id)
+                    })
+                    .map(|space| space.label.clone())
+                    .unwrap_or_else(|| "none".to_string());
+                self.settings.draft.active_space = next_space;
+                self.push_output(&format!("[settings] Space -> {label}."));
+            }
             SettingsAction::SourceAdd => {
                 let source = if self
                     .settings
@@ -825,6 +844,14 @@ impl App {
         &self.config_path
     }
 
+    pub(crate) fn active_space_label(&self) -> Option<&str> {
+        active_space(&self.config).map(|space| space.label.as_str())
+    }
+
+    pub(crate) fn active_space_scope(&self) -> Option<&str> {
+        active_space(&self.config).map(|space| space.scope.as_str())
+    }
+
     pub(crate) fn theme(&self) -> ThemePalette {
         ThemeRegistry::get(self.config.theme)
     }
@@ -852,6 +879,7 @@ impl App {
             SettingsAction::CacheTtl,
             SettingsAction::CacheClear,
             SettingsAction::Safety,
+            SettingsAction::Space,
             SettingsAction::SourceAdd,
         ];
         for index in 0..self.settings.draft.sources.len() {
@@ -899,6 +927,13 @@ impl App {
                     self.text(I18nKey::ValueSafetyRestored),
                 ),
                 self.text(I18nKey::HintSafety),
+            ),
+            SettingsAction::Space => SettingsRow::new(
+                self.text(I18nKey::SettingsSpace),
+                active_space(&self.settings.draft)
+                    .map(|space| space.label.clone())
+                    .unwrap_or_else(|| self.text(I18nKey::ValueNoSpace).to_string()),
+                self.text(I18nKey::HintSpace),
             ),
             SettingsAction::SourceAdd => SettingsRow::new(
                 self.text(I18nKey::SettingsSources),
@@ -1209,6 +1244,32 @@ fn next_cache_ttl(current: u64) -> u64 {
     TTL_VALUES[(index + 1) % TTL_VALUES.len()]
 }
 
+fn active_space(config: &AppConfig) -> Option<&SpaceSettings> {
+    let active = config.active_space.as_ref()?;
+    config
+        .spaces
+        .iter()
+        .find(|space| space.enabled && &space.id == active)
+}
+
+fn next_active_space(current: Option<&str>, spaces: &[SpaceSettings]) -> Option<String> {
+    let enabled = spaces
+        .iter()
+        .filter(|space| space.enabled)
+        .collect::<Vec<_>>();
+    if enabled.is_empty() {
+        return None;
+    }
+
+    match current.and_then(|active| enabled.iter().position(|space| space.id == active)) {
+        None => enabled.first().map(|space| space.id.clone()),
+        Some(index) if index + 1 < enabled.len() => {
+            enabled.get(index + 1).map(|space| space.id.clone())
+        }
+        Some(_) => None,
+    }
+}
+
 fn safety_summary(
     config: &AppConfig,
     locked: &'static str,
@@ -1266,6 +1327,7 @@ enum SettingsAction {
     CacheTtl,
     CacheClear,
     Safety,
+    Space,
     SourceAdd,
     SourceToggle(usize),
     SourceTest(usize),
@@ -1724,6 +1786,45 @@ mod tests {
         let loaded = load_or_default(path);
         assert!(loaded.config.safety.delete_confirmation);
         assert!(loaded.config.safety.home_delete_guard);
+    }
+
+    #[test]
+    fn settings_space_cycles_and_persists_without_startup_args() {
+        let temp = tempdir().unwrap();
+        let path = temp.path().join("config.toml");
+        let mut app = App::from_skills_with_config(
+            fixture_skills(),
+            LoadedConfig {
+                path: path.clone(),
+                config: AppConfig::default(),
+                warnings: Vec::new(),
+            },
+        );
+
+        assert_eq!(app.active_space_label(), Some("qianchuan/fe"));
+
+        app.handle_key(KeyEvent::from(KeyCode::Char(',')));
+        move_to_setting(&mut app, "Space");
+        app.handle_key(KeyEvent::from(KeyCode::Enter));
+
+        assert_eq!(app.settings.draft.active_space, None);
+        assert!(
+            app.output()
+                .iter()
+                .any(|line| line.contains("Space -> none"))
+        );
+
+        app.handle_key(KeyEvent::from(KeyCode::Enter));
+        assert_eq!(
+            app.settings.draft.active_space.as_deref(),
+            Some("qianchuan-fe")
+        );
+
+        move_to_setting(&mut app, "Save");
+        app.handle_key(KeyEvent::from(KeyCode::Enter));
+
+        let loaded = load_or_default(path);
+        assert_eq!(loaded.config.active_space.as_deref(), Some("qianchuan-fe"));
     }
 
     #[test]

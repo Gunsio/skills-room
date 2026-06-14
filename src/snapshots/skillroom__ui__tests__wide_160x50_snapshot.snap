@@ -1,10 +1,10 @@
 ---
 source: src/ui.rs
-assertion_line: 1055
+assertion_line: 1076
 expression: "render_snapshot(160, 50)"
 ---
 ╭──────────────────────────────────────────────────────────────────────────────────────────────────────────────╮╭Filters───────────────────────────────────────╮
-│ / Search skills...                                                                                           ││None                                          │
+│ / Search skills...                                                                                           ││Space qianchuan/fe                            │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────╯╰──────────────────────────────────────────────╯
 
 ╭Skills────────────────────────────────────────────────────────────────────────────────────────────────────────╮╭Details───────────────────────────────────────╮
@@ -47,7 +47,7 @@ expression: "render_snapshot(160, 50)"
 │                                                                                                              ││                                              │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────╯╰──────────────────────────────────────────────╯
 5 visible skills | 5 total | 3 local | 1 updates | 1 high risk
-Filter none | Source all | Scope all scopes
+Space qianchuan/fe | Remote scope skills.byted.org/qianchuan/fe | Filter none | Source all | Skill scope all scopes
 General   : q: quit R: refresh tab: switch focus /: search esc: clear search enter: exit search s/S: sort
 Navigation: j/↓: cursor down k/↑: cursor up PageUp: prev page PageDown: next page g: go to top G: go to bottom
 Filter    : a: all f: source i: local o: updates v: active

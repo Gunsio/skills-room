@@ -15,6 +15,10 @@ pub struct AppConfig {
     pub language: Language,
     pub cache: CacheSettings,
     pub safety: SafetySettings,
+    #[serde(default)]
+    pub active_space: Option<String>,
+    #[serde(default = "default_spaces")]
+    pub spaces: Vec<SpaceSettings>,
     pub sources: Vec<SourceSettings>,
 }
 
@@ -26,6 +30,8 @@ impl Default for AppConfig {
             language: Language::EnUs,
             cache: CacheSettings::default(),
             safety: SafetySettings::default(),
+            active_space: Some(SpaceSettings::qianchuan_fe().id),
+            spaces: default_spaces(),
             sources: vec![SourceSettings::bytedance()],
         }
     }
@@ -55,6 +61,24 @@ impl AppConfig {
             warnings.push(ConfigWarning::DefaultSourceRestored);
             self.sources.push(SourceSettings::bytedance());
         }
+        if self.spaces.is_empty() {
+            self.spaces = default_spaces();
+        }
+        for space in &mut self.spaces {
+            space.normalize();
+        }
+        if self.active_space.as_ref().is_none_or(|active| {
+            !self
+                .spaces
+                .iter()
+                .any(|space| space.enabled && &space.id == active)
+        }) {
+            self.active_space = self
+                .spaces
+                .iter()
+                .find(|space| space.enabled)
+                .map(|space| space.id.clone());
+        }
         for source in &mut self.sources {
             if source.name == "skills.bytedance.net"
                 || source.url.trim_end_matches('/') == "https://skills.bytedance.net"
@@ -67,6 +91,46 @@ impl AppConfig {
         }
 
         (self, warnings)
+    }
+}
+
+fn default_spaces() -> Vec<SpaceSettings> {
+    vec![SpaceSettings::qianchuan_fe()]
+}
+
+#[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
+pub struct SpaceSettings {
+    pub id: String,
+    pub label: String,
+    pub scope: String,
+    pub url: String,
+    pub enabled: bool,
+}
+
+impl SpaceSettings {
+    pub fn qianchuan_fe() -> Self {
+        Self {
+            id: "qianchuan-fe".to_string(),
+            label: "qianchuan/fe".to_string(),
+            scope: "skills.byted.org/qianchuan/fe".to_string(),
+            url: "https://skills.bytedance.net/space/skills.byted.org/qianchuan/fe".to_string(),
+            enabled: true,
+        }
+    }
+
+    fn normalize(&mut self) {
+        if self.id.trim().is_empty() {
+            self.id = self.scope.replace('/', "-");
+        }
+        if self.label.trim().is_empty() {
+            self.label = self.scope.clone();
+        }
+        if self.scope.trim().is_empty() {
+            self.scope = "skills.byted.org/default/public".to_string();
+        }
+        if self.url.trim().is_empty() {
+            self.url = format!("https://skills.bytedance.net/space/{}", self.scope);
+        }
     }
 }
 
@@ -429,6 +493,14 @@ mod tests {
             config.sources[0].portal_url.as_deref(),
             Some("https://skills.bytedance.net/")
         );
+        assert_eq!(config.active_space.as_deref(), Some("qianchuan-fe"));
+        assert_eq!(config.spaces.len(), 1);
+        assert_eq!(config.spaces[0].label, "qianchuan/fe");
+        assert_eq!(config.spaces[0].scope, "skills.byted.org/qianchuan/fe");
+        assert_eq!(
+            config.spaces[0].url,
+            "https://skills.bytedance.net/space/skills.byted.org/qianchuan/fe"
+        );
     }
 
     #[test]
@@ -447,6 +519,21 @@ mod tests {
         assert_eq!(loaded.config.theme, ThemeName::GruvboxDark);
         assert_eq!(loaded.config.language, Language::ZhCn);
         assert!(loaded.warnings.is_empty());
+    }
+
+    #[test]
+    fn normalization_restores_default_active_space_for_legacy_config() {
+        let config = AppConfig {
+            active_space: None,
+            spaces: Vec::new(),
+            ..AppConfig::default()
+        };
+
+        let (normalized, warnings) = config.normalized();
+
+        assert!(warnings.is_empty());
+        assert_eq!(normalized.active_space.as_deref(), Some("qianchuan-fe"));
+        assert_eq!(normalized.spaces[0].label, "qianchuan/fe");
     }
 
     #[test]

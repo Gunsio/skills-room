@@ -172,6 +172,9 @@ fn filter_summary(app: &App) -> Line<'static> {
     let mut spans = Vec::new();
     let filters = app.filters();
 
+    if let Some(space) = app.active_space_label() {
+        push_filter_part(&mut spans, "Space", space.to_string());
+    }
     if !app.search_query().is_empty() {
         spans.push(Span::raw("Search "));
         spans.push(Span::styled(
@@ -538,6 +541,31 @@ fn render_stats(
     } else {
         "none"
     };
+    let space = app.active_space_label().unwrap_or("none");
+    let space_scope = app.active_space_scope().unwrap_or("local only");
+    let filter_line = if area.width < 112 {
+        Line::from(vec![
+            Span::styled("Space ", theme.muted()),
+            Span::styled(space.to_string(), theme.info()),
+            Span::styled(" | Filter ", theme.muted()),
+            Span::styled(filter_status, theme.info()),
+            Span::styled(" | Source ", theme.muted()),
+            Span::styled(filter_source_label(app), theme.info()),
+        ])
+    } else {
+        Line::from(vec![
+            Span::styled("Space ", theme.muted()),
+            Span::styled(space.to_string(), theme.info()),
+            Span::styled(" | Remote scope ", theme.muted()),
+            Span::styled(space_scope.to_string(), theme.info()),
+            Span::styled(" | Filter ", theme.muted()),
+            Span::styled(filter_status, theme.info()),
+            Span::styled(" | Source ", theme.muted()),
+            Span::styled(filter_source_label(app), theme.info()),
+            Span::styled(" | Skill scope ", theme.muted()),
+            Span::styled(filter_scope_label(app), theme.info()),
+        ])
+    };
     let lines = vec![
         Line::from(vec![
             Span::styled(visible.to_string(), theme.title()),
@@ -551,14 +579,7 @@ fn render_stats(
             Span::styled(high_risk.to_string(), theme.title()),
             Span::styled(" high risk", theme.value()),
         ]),
-        Line::from(vec![
-            Span::styled("Filter ", theme.muted()),
-            Span::styled(filter_status, theme.info()),
-            Span::styled(" | Source ", theme.muted()),
-            Span::styled(filter_source_label(app), theme.info()),
-            Span::styled(" | Scope ", theme.muted()),
-            Span::styled(filter_scope_label(app), theme.info()),
-        ]),
+        filter_line,
     ];
 
     frame.render_widget(

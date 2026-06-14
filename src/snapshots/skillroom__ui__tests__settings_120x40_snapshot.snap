@@ -1,10 +1,10 @@
 ---
 source: src/ui.rs
-assertion_line: 1060
+assertion_line: 1081
 expression: "render_settings_snapshot(120, 40)"
 ---
 ╭──────────────────────────────────────────────────────────────────────────────────╮╭Filters───────────────────────────╮
-│ / Search skills...                                                               ││None                              │
+│ / Search skills...                                                               ││Space qianchuan/fe                │
 ╰──────────────────────────────────────────────────────────────────────────────────╯╰──────────────────────────────────╯
 
 ╭Skills──────────────────────────────────────────────────────────────────────────╮╭Details─────────────────────────────╮
@@ -18,11 +18,11 @@ expression: "render_settings_snapshot(120, 40)"
 │                │  Cache TTL                     1800s  Enter cycles TTL                             │                │
 │                │  Cache                         ready  Enter clears cache state                     │s/code-review   │
 │                │  Safety                        locked  Cannot disable guard rails                  │                │
+│                │  Space                         qianchuan/fe  Enter cycles configured spaces        │                │
 │                │  Sources                       1 configured  Enter adds disabled source            │                │
-│                │  Source bytedance-agentbuddy   enabled  Enter toggles source                       │                │
-│                │  Test bytedance-agentbuddy     not-tested  Enter dry-runs source                   │, agent-2]      │
-│                │  Save                          persist config.toml  Enter writes config            │                │
-│                │                                                                                    │irs, 1 refs, 0  │
+│                │  Source bytedance-agentbuddy   enabled  Enter toggles source                       │, agent-2]      │
+│                │  Test bytedance-agentbuddy     not-tested  Enter dry-runs source                   │                │
+│                │  Save                          persist config.toml  Enter writes config            │irs, 1 refs, 0  │
 │                │                                                                                    │                │
 │                │                                                                                    │view.sh         │
 │                │                                                                                    │ove             │
@@ -37,7 +37,7 @@ expression: "render_settings_snapshot(120, 40)"
 │                │                                                                                    │                │
 ╰────────────────│                                                                                    │────────────────╯
 5 visible skills ╰────────────────────────────────────────────────────────────────────────────────────╯
-Filter none | Source all | Scope all scopes
+Space qianchuan/fe | Remote scope skills.byted.org/qianchuan/fe | Filter none | Source all | Skill scope all scopes
 General   : q: quit R: refresh tab: switch focus /: search esc: clear search enter: exit search s/S: sort
 Navigation: j/↓: cursor down k/↑: cursor up PageUp: prev page PageDown: next page g: go to top G: go to bottom
 Filter    : a: all f: source i: local o: updates v: active
