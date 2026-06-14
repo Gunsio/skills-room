@@ -1,29 +1,28 @@
 ---
 source: src/ui.rs
-assertion_line: 738
+assertion_line: 1011
 expression: "render_snapshot(80, 24)"
 ---
-┌Command───────────────────────────────────────────────────────────────────────┐
-│ Skillroom 5 / 5 skills [/] Search skills... focus=Table sort=Name asc        │
-└──────────────────────────────────────────────────────────────────────────────┘
-┌Skills──────────────────────────────────────────┐┌Details─────────────────────┐
-│Name   Sourc Scope    State    Risk     Update  ││Name: code-review           │
-│> code curat Local    Update   Medium   1.9.2   ││Scope: Local                │
-│  data skill Global   Active   Low      current ││State: Update               │
-│  lega local Local    Error    High     blocked ││Source: curated             │
-│  tapr local Local    Ready    None     current ││Version: 1.8.0              │
-│  web- githu Global   Ready    Low      current ││Path: ~/.codex/skills/code-r│
-│                                                │└────────────────────────────┘
-│                                                │┌Stats───────────────────────┐
-│                                                ││Filters ready               │
-│                                                ││Settings placeholder        │
-│                                                ││Visible 5                   │
-└────────────────────────────────────────────────┘└────────────────────────────┘
-┌Output────────────────────────────────────────────────────────────────────────┐
-│> [system] Skillroom daemon started.                                          │
-│> [skill] Loaded 5 skills from local inventory.                               │
-│> [prompt] Ready for command.                                                 │
-└──────────────────────────────────────────────────────────────────────────────┘
-┌──────────────────────────────────────────────────────────────────────────────┐
-│ q quit  / search  ? help  , settings  Tab focus  i/u/U/x/o/y actions         │
-└──────────────────────────────────────────────────────────────────────────────┘
+╭──────────────────────────────────────────────────────╮╭Filters───────────────╮
+│ / Search skills...                                   ││None                  │
+╰──────────────────────────────────────────────────────╯╰──────────────────────╯
+
+╭Skills──────────────────────────────────────────╮╭Details─────────────────────╮
+│↑ Name        Source        Scope     State     ││◇ code-review               │
+│                                                ││Review pull requests with   │
+│code-review   curated       Local     Update    ││repository-local conventions│
+│data-analysi  skills.byted  Global    Active    ││and test gates.             │
+│legacy-deplo  local/archiv  Local     Error     ││                            │
+│taproom       local/git     Local     Ready     ││Version: 1.8.0              │
+│web-scraper   github        Global    Ready     ││Source: curated             │
+│                                                ││Scope: Local                │
+│                                                ││Path:                       │
+│                                                ││~/.codex/skills/code-review │
+│                                                ││                            │
+╰────────────────────────────────────────────────╯╰────────────────────────────╯
+5 visible skills | 5 total | 3 local | 1 updates | 1 high risk
+Filter none | Source all | Scope all scopes
+General   : q: quit R: refresh /: search ?: help
+Navigation: j/↓: down k/↑: up PgUp: prev PgDn: next
+Filter    : a: all f: source i: local o: updates
+Commands  : h: open t: install u: update x: remove

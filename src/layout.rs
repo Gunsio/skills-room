@@ -14,6 +14,7 @@ pub enum LayoutTier {
 pub struct AppLayout {
     pub tier: LayoutTier,
     pub search: Rect,
+    pub filters: Rect,
     pub table: Rect,
     pub details: Rect,
     pub stats: Rect,
@@ -28,13 +29,20 @@ impl AppLayout {
         }
 
         let tier = LayoutTier::for_size(area.width, area.height);
-        let [search, body, output, help] = Layout::vertical([
+        let [top, _gap, body, stats, help] = Layout::vertical([
             Constraint::Length(3),
+            Constraint::Length(1),
             Constraint::Fill(1),
-            Constraint::Length(tier.output_height()),
-            Constraint::Length(3),
+            Constraint::Length(tier.stats_height()),
+            Constraint::Length(tier.help_height()),
         ])
         .areas(area);
+
+        let [search, filters] = Layout::horizontal([
+            Constraint::Percentage(tier.search_percent()),
+            Constraint::Fill(1),
+        ])
+        .areas(top);
 
         let [table, side] = Layout::horizontal([
             Constraint::Percentage(tier.table_percent()),
@@ -42,17 +50,14 @@ impl AppLayout {
         ])
         .areas(body);
 
-        let [details, stats] =
-            Layout::vertical([Constraint::Fill(1), Constraint::Length(tier.stats_height())])
-                .areas(side);
-
         Some(Self {
             tier,
             search,
+            filters,
             table,
-            details,
+            details: side,
             stats,
-            output,
+            output: Rect::new(0, 0, 0, 0),
             help,
         })
     }
@@ -70,24 +75,32 @@ impl LayoutTier {
     fn table_percent(self) -> u16 {
         match self {
             Self::Compact => 62,
-            Self::Standard => 60,
-            Self::Wide => 64,
+            Self::Standard => 68,
+            Self::Wide => 70,
+        }
+    }
+
+    fn search_percent(self) -> u16 {
+        match self {
+            Self::Compact => 70,
+            Self::Standard => 70,
+            Self::Wide => 70,
         }
     }
 
     fn stats_height(self) -> u16 {
         match self {
-            Self::Compact => 5,
-            Self::Standard => 7,
-            Self::Wide => 9,
+            Self::Compact => 2,
+            Self::Standard => 2,
+            Self::Wide => 2,
         }
     }
 
-    fn output_height(self) -> u16 {
+    fn help_height(self) -> u16 {
         match self {
             Self::Compact => 5,
-            Self::Standard => 7,
-            Self::Wide => 9,
+            Self::Standard => 5,
+            Self::Wide => 5,
         }
     }
 }
@@ -121,10 +134,10 @@ mod tests {
             let layout = AppLayout::calculate(Rect::new(0, 0, width, height)).unwrap();
             assert_eq!(layout.tier, expected_tier);
             assert_non_empty(layout.search);
+            assert_non_empty(layout.filters);
             assert_non_empty(layout.table);
             assert_non_empty(layout.details);
             assert_non_empty(layout.stats);
-            assert_non_empty(layout.output);
             assert_non_empty(layout.help);
         }
     }

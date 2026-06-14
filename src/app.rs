@@ -281,11 +281,17 @@ impl App {
             (KeyCode::Char('?'), _) => {
                 self.show_help = !self.show_help;
             }
-            (KeyCode::Char('i'), _) => self.open_action(ActionKind::Install),
+            (KeyCode::Char('R'), _) => self.refresh_inventory(),
+            (KeyCode::Char('a'), _) => self.clear_filters(),
+            (KeyCode::Char('f'), _) => self.cycle_source_filter(),
+            (KeyCode::Char('i'), _) => self.toggle_local_filter(),
+            (KeyCode::Char('o'), _) => self.toggle_state_filter(SkillState::UpdateAvailable),
+            (KeyCode::Char('v'), _) => self.toggle_state_filter(SkillState::Active),
+            (KeyCode::Char('t'), _) => self.open_action(ActionKind::Install),
             (KeyCode::Char('u'), _) => self.open_action(ActionKind::UpdateSelected),
             (KeyCode::Char('U'), _) => self.open_action(ActionKind::UpdateAll),
             (KeyCode::Char('x'), _) => self.open_action(ActionKind::Remove),
-            (KeyCode::Char('o'), _) => self.open_action(ActionKind::OpenPath),
+            (KeyCode::Char('h'), _) => self.open_action(ActionKind::OpenPath),
             (KeyCode::Char('y'), _) => self.open_action(ActionKind::CopyPath),
             (KeyCode::Tab, KeyModifiers::SHIFT) => {
                 self.focus = self.focus.previous();
@@ -384,6 +390,87 @@ impl App {
         self.input_mode = InputMode::Search;
         self.focus = FocusArea::Search;
         self.show_help = false;
+    }
+
+    fn refresh_inventory(&mut self) {
+        let skills = crate::local_inventory::load_local_inventory_from_env();
+        self.skills = if skills.is_empty() {
+            fixture_skills()
+        } else {
+            skills
+        };
+        self.clamp_selection();
+        self.push_output(&format!(
+            "[status] Refreshed {} skills from local inventory.",
+            self.skills.len()
+        ));
+    }
+
+    fn clear_filters(&mut self) {
+        self.search_query.clear();
+        self.filters = FilterState::default();
+        self.input_mode = InputMode::Normal;
+        self.focus = FocusArea::Table;
+        self.clamp_selection();
+        self.push_output("[filter] Reset all filters.");
+    }
+
+    fn cycle_source_filter(&mut self) {
+        let sources = self.available_sources();
+        if sources.is_empty() {
+            self.filters.source = None;
+            self.push_output("[filter] No sources available.");
+            return;
+        }
+
+        self.filters.source = match &self.filters.source {
+            None => sources.first().cloned(),
+            Some(current) => {
+                let index = sources.iter().position(|source| source == current);
+                match index {
+                    Some(index) if index + 1 < sources.len() => sources.get(index + 1).cloned(),
+                    _ => None,
+                }
+            }
+        };
+        self.clamp_selection();
+        self.push_output(&format!(
+            "[filter] Source -> {}.",
+            self.source_filter_label()
+        ));
+    }
+
+    fn toggle_local_filter(&mut self) {
+        self.filters.scope = if self.filters.scope == Some(SkillScope::Local) {
+            None
+        } else {
+            Some(SkillScope::Local)
+        };
+        self.clamp_selection();
+        self.push_output(&format!(
+            "[filter] Local skills -> {}.",
+            if self.filters.scope == Some(SkillScope::Local) {
+                "on"
+            } else {
+                "off"
+            }
+        ));
+    }
+
+    fn toggle_state_filter(&mut self, state: SkillState) {
+        self.filters.state = if self.filters.state == Some(state) {
+            None
+        } else {
+            Some(state)
+        };
+        self.clamp_selection();
+        self.push_output(&format!(
+            "[filter] State -> {}.",
+            self.filters
+                .state
+                .map(|state| state.label())
+                .unwrap_or("all")
+        ));
     }
 
     fn open_action(&mut self, kind: ActionKind) {
@@ -695,6 +782,23 @@ impl App {
         &self.filters
     }
 
+    pub(crate) fn source_filter_label(&self) -> String {
+        self.filters
+            .source
+            .as_ref()
+            .map(|source| source.label().to_string())
+            .unwrap_or_else(|| "all".to_string())
+    }
+
+    #[cfg(test)]
+    pub(crate) fn local_filter_label(&self) -> &'static str {
+        if self.filters.scope == Some(SkillScope::Local) {
+            "local"
+        } else {
+            "all scopes"
+        }
+    }
+
     pub(crate) fn sort_column(&self) -> SortColumn {
         self.sort_column
     }
@@ -901,6 +1005,17 @@ impl App {
                 .cmp(right.update_label())
                 .then(left.name.cmp(&right.name)),
         }
+    }
+
+    fn available_sources(&self) -> Vec<Source> {
+        let mut sources = Vec::new();
+        for skill in &self.skills {
+            if !sources.iter().any(|source| source == &skill.source) {
+                sources.push(skill.source.clone());
+            }
+        }
+        sources.sort_by(|left, right| left.label().cmp(right.label()));
+        sources
     }
 
     fn tick(&mut self) {
@@ -1333,6 +1448,94 @@ mod tests {
     }
 
     #[test]
+    fn source_filter_key_cycles_available_sources_and_clamps_selection() {
+        let mut app = App::default();
+        app.selected = app.visible_skills().len() - 1;
+
+        app.handle_key(KeyEvent::from(KeyCode::Char('f')));
+
+        assert_eq!(app.filters.source, Some(Source::Curated));
+        assert_eq!(app.selected_index(), 0);
+        assert_eq!(app.visible_skills().len(), 1);
+        assert_eq!(app.visible_skills()[0].1.name, "code-review");
+        assert_eq!(app.source_filter_label(), "curated");
+        assert!(
+            app.output()
+                .iter()
+                .any(|line| line.contains("Source -> curated"))
+        );
+
+        for _ in 0..5 {
+            app.handle_key(KeyEvent::from(KeyCode::Char('f')));
+        }
+
+        assert_eq!(app.filters.source, None);
+        assert_eq!(app.source_filter_label(), "all");
+    }
+
+    #[test]
+    fn local_filter_key_toggles_local_only_scope() {
+        let mut app = App::default();
+
+        app.handle_key(KeyEvent::from(KeyCode::Char('i')));
+
+        assert_eq!(app.filters.scope, Some(SkillScope::Local));
+        assert_eq!(app.local_filter_label(), "local");
+        assert!(
+            app.visible_skills()
+                .iter()
+                .all(|(_, skill)| skill.scope == SkillScope::Local)
+        );
+        assert!(
+            app.output()
+                .iter()
+                .any(|line| line.contains("Local skills -> on"))
+        );
+
+        app.handle_key(KeyEvent::from(KeyCode::Char('i')));
+
+        assert_eq!(app.filters.scope, None);
+        assert_eq!(app.local_filter_label(), "all scopes");
+        assert_eq!(app.visible_skills().len(), fixture_skills().len());
+    }
+
+    #[test]
+    fn taproom_style_filter_keys_toggle_state_and_reset_all() {
+        let mut app = App::default();
+
+        app.handle_key(KeyEvent::from(KeyCode::Char('o')));
+        assert_eq!(app.filters.state, Some(SkillState::UpdateAvailable));
+        assert!(
+            app.visible_skills()
+                .iter()
+                .all(|(_, skill)| skill.state == SkillState::UpdateAvailable)
+        );
+
+        app.handle_key(KeyEvent::from(KeyCode::Char('v')));
+        assert_eq!(app.filters.state, Some(SkillState::Active));
+        assert!(
+            app.visible_skills()
+                .iter()
+                .all(|(_, skill)| skill.state == SkillState::Active)
+        );
+
+        app.handle_key(KeyEvent::from(KeyCode::Char('a')));
+        assert_eq!(app.filters, FilterState::default());
+        assert_eq!(app.input_mode(), InputMode::Normal);
+        assert_eq!(app.visible_skills().len(), fixture_skills().len());
+    }
+
+    #[test]
+    fn refresh_key_reloads_inventory_without_changing_command_mode() {
+        let mut app = App::default();
+
+        app.handle_key(KeyEvent::from(KeyCode::Char('R')));
+
+        assert_eq!(app.input_mode(), InputMode::Normal);
+        assert!(app.output().iter().any(|line| line.contains("Refreshed")));
+    }
+
+    #[test]
     fn streaming_output_is_bounded() {
         let mut app = App::default();
 
@@ -1593,7 +1796,7 @@ mod tests {
         let mut app = App::default();
 
         move_to_skill(&mut app, "taproom");
-        app.handle_key(KeyEvent::from(KeyCode::Char('i')));
+        app.handle_key(KeyEvent::from(KeyCode::Char('t')));
 
         assert!(app.pending_action().is_some());
         assert_eq!(
@@ -1699,7 +1902,7 @@ mod tests {
     fn open_and_copy_path_actions_do_not_require_confirmation() {
         let mut app = App::default();
 
-        app.handle_key(KeyEvent::from(KeyCode::Char('o')));
+        app.handle_key(KeyEvent::from(KeyCode::Char('h')));
         app.handle_key(KeyEvent::from(KeyCode::Char('y')));
 
         assert!(app.pending_action().is_none());
@@ -1733,7 +1936,7 @@ mod tests {
         let mut app = App::default();
 
         move_to_skill(&mut app, "taproom");
-        app.handle_key(KeyEvent::from(KeyCode::Char('i')));
+        app.handle_key(KeyEvent::from(KeyCode::Char('t')));
         for character in "INSTALL".chars() {
             app.handle_key(KeyEvent::from(KeyCode::Char(character)));
         }
@@ -1759,7 +1962,7 @@ mod tests {
         };
 
         move_to_skill(&mut app, "taproom");
-        app.handle_key(KeyEvent::from(KeyCode::Char('i')));
+        app.handle_key(KeyEvent::from(KeyCode::Char('t')));
         for character in "INSTALL".chars() {
             app.handle_key(KeyEvent::from(KeyCode::Char(character)));
         }

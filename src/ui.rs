@@ -1,7 +1,8 @@
 use ratatui::{
     Frame,
-    layout::Alignment,
-    style::Style,
+    layout::{Alignment, Constraint},
+    style::{Modifier, Style},
+    symbols,
     text::{Line, Span},
     widgets::{Block, Cell, Paragraph, Row, Table, Wrap},
 };
@@ -27,10 +28,13 @@ pub fn render(app: &App, frame: &mut Frame<'_>) {
     let theme = app.theme();
 
     render_search(app, frame, layout.search, theme);
+    render_filters(app, frame, layout.filters, theme);
     render_table(app, frame, layout.table, theme);
     render_details(app, frame, layout.details, theme);
     render_stats(app, frame, layout.stats, theme);
-    render_output(app, frame, layout.output, theme);
+    if layout.output.height > 0 {
+        render_output(app, frame, layout.output, theme);
+    }
     render_help(app, frame, layout.help, theme);
 
     if app.show_help() {
@@ -46,6 +50,52 @@ pub fn render(app: &App, frame: &mut Frame<'_>) {
     }
 }
 
+pub(crate) fn render_loading(frame: &mut Frame<'_>, phase: usize) {
+    let area = frame.area();
+    let theme = crate::theme::ThemeRegistry::get(crate::config::ThemeName::TokyoNight);
+    let popup = centered_rect(area, 84, 66);
+    let frames = ["-", "\\", "|", "/"];
+    let spinner = frames[phase % frames.len()];
+    let lines = vec![
+        Line::from(Span::styled("Skillroom", theme.title())),
+        Line::from(""),
+        Line::from(vec![
+            Span::styled(format!("{spinner} "), theme.title()),
+            Span::styled("Loading local skills", theme.value()),
+            Span::raw("  "),
+            Span::styled("in progress", theme.success()),
+        ]),
+        Line::from(""),
+        Line::from(vec![
+            Span::styled("1 ", theme.title()),
+            Span::styled("scan configured skill roots", theme.muted()),
+        ]),
+        Line::from(vec![
+            Span::styled("2 ", theme.title()),
+            Span::styled("load config, themes, language", theme.muted()),
+        ]),
+        Line::from(vec![
+            Span::styled("3 ", theme.title()),
+            Span::styled("build dashboard; no writes", theme.muted()),
+        ]),
+        Line::from(""),
+        Line::from(vec![
+            Span::styled("<q> ", theme.info()),
+            Span::styled("quit  ", theme.muted()),
+            Span::styled("<ctrl-c> ", theme.info()),
+            Span::styled("quit", theme.muted()),
+        ]),
+    ];
+
+    frame.render_widget(
+        Paragraph::new(lines)
+            .style(theme.value())
+            .block(focused_block("Loading", true, theme))
+            .wrap(Wrap { trim: false }),
+        popup,
+    );
+}
+
 fn render_search(
     app: &App,
     frame: &mut Frame<'_>,
@@ -53,30 +103,14 @@ fn render_search(
     theme: ThemePalette,
 ) {
     let line = Line::from(vec![
-        Span::styled(" Skillroom ", theme.title()),
-        Span::styled(
-            format!(
-                "{} / {} skills ",
-                app.visible_skills().len(),
-                app.skills().len()
-            ),
-            theme.muted(),
-        ),
+        Span::styled(" / ", theme.info()),
         search_prompt(app, theme),
-        Span::styled(app.text(I18nKey::Focus), theme.muted()),
-        Span::styled(app.focus().label(), theme.info()),
-        Span::styled(app.text(I18nKey::Sort), theme.muted()),
-        sort_label(app, theme),
     ]);
 
     frame.render_widget(
         Paragraph::new(line)
             .style(theme.value())
-            .block(focused_block(
-                app.text(I18nKey::PanelCommand),
-                app.focus() == FocusArea::Search,
-                theme,
-            ))
+            .block(plain_block(app.focus() == FocusArea::Search, theme))
             .alignment(Alignment::Left),
         area,
     );
@@ -84,23 +118,44 @@ fn render_search(
 
 fn search_prompt(app: &App, theme: ThemePalette) -> Span<'static> {
     match app.input_mode() {
-        InputMode::Normal => Span::styled(app.text(I18nKey::SearchPlaceholder), theme.muted()),
-        InputMode::Search if app.search_query().is_empty() => Span::styled("/ ", theme.info()),
-        InputMode::Search => Span::styled(format!("/ {}", app.search_query()), theme.info()),
+        InputMode::Normal => Span::styled("Search skills...", theme.muted()),
+        InputMode::Search if app.search_query().is_empty() => Span::styled("", theme.info()),
+        InputMode::Search => Span::styled(app.search_query().to_string(), theme.info()),
     }
 }
 
-fn sort_label(app: &App, theme: ThemePalette) -> Span<'static> {
-    let direction = if app.sort_ascending() { "asc" } else { "desc" };
-    let column = match app.sort_column() {
-        crate::app::SortColumn::Name => app.text(I18nKey::ColumnName),
-        crate::app::SortColumn::Source => app.text(I18nKey::ColumnSource),
-        crate::app::SortColumn::Scope => app.text(I18nKey::ColumnScope),
-        crate::app::SortColumn::State => app.text(I18nKey::ColumnState),
-        crate::app::SortColumn::Risk => app.text(I18nKey::ColumnRisk),
-        crate::app::SortColumn::Update => app.text(I18nKey::ColumnUpdate),
-    };
-    Span::styled(format!("{column} {direction}"), theme.info())
+fn render_filters(
+    app: &App,
+    frame: &mut Frame<'_>,
+    area: ratatui::layout::Rect,
+    theme: ThemePalette,
+) {
+    frame.render_widget(
+        Paragraph::new(filter_summary(app))
+            .style(theme.value())
+            .block(titled_block(
+                "Filters",
+                app.focus() == FocusArea::Filters,
+                theme,
+            )),
+        area,
+    );
+}
+
+fn filter_source_label(app: &App) -> String {
+    app.filters()
+        .source
+        .as_ref()
+        .map(|source| source.label().to_string())
+        .unwrap_or_else(|| app.text(I18nKey::ValueAllSources).to_string())
+}
+
+fn filter_scope_label(app: &App) -> &'static str {
+    if app.filters().scope == Some(crate::skill::SkillScope::Local) {
+        app.text(I18nKey::ValueLocalOnly)
+    } else {
+        app.text(I18nKey::ValueAllScopes)
+    }
 }
 
 fn has_active_filters(app: &App) -> bool {
@@ -113,67 +168,208 @@ fn has_active_filters(app: &App) -> bool {
         || filters.update.is_some()
 }
 
+fn filter_summary(app: &App) -> Line<'static> {
+    let mut spans = Vec::new();
+    let filters = app.filters();
+
+    if !app.search_query().is_empty() {
+        spans.push(Span::raw("Search "));
+        spans.push(Span::styled(
+            app.search_query().to_string(),
+            app.theme().info(),
+        ));
+    }
+    if filters.source.is_some() {
+        push_filter_part(&mut spans, "Source", app.source_filter_label());
+    }
+    if filters.scope.is_some() {
+        push_filter_part(
+            &mut spans,
+            "Scope",
+            app.filters()
+                .scope
+                .map(|scope| scope.label().to_string())
+                .unwrap_or_default(),
+        );
+    }
+    if filters.state.is_some() {
+        push_filter_part(
+            &mut spans,
+            "State",
+            filters
+                .state
+                .map(|state| state.label().to_string())
+                .unwrap_or_default(),
+        );
+    }
+    if filters.risk.is_some() {
+        push_filter_part(
+            &mut spans,
+            "Risk",
+            filters
+                .risk
+                .map(|risk| risk.label().to_string())
+                .unwrap_or_default(),
+        );
+    }
+
+    if spans.is_empty() {
+        Line::from("None")
+    } else {
+        Line::from(spans)
+    }
+}
+
+fn push_filter_part(spans: &mut Vec<Span<'static>>, label: &'static str, value: String) {
+    if !spans.is_empty() {
+        spans.push(Span::raw(" | "));
+    }
+    spans.push(Span::raw(format!("{label} ")));
+    spans.push(Span::raw(value));
+}
+
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+enum TableColumn {
+    Name,
+    Source,
+    Scope,
+    State,
+    Risk,
+    Update,
+}
+
+impl TableColumn {
+    fn visible(area_width: u16) -> Vec<Self> {
+        if area_width < 58 {
+            vec![Self::Name, Self::Source, Self::Scope, Self::State]
+        } else if area_width < 82 {
+            vec![
+                Self::Name,
+                Self::Source,
+                Self::Scope,
+                Self::State,
+                Self::Update,
+            ]
+        } else {
+            vec![
+                Self::Name,
+                Self::Source,
+                Self::Scope,
+                Self::State,
+                Self::Risk,
+                Self::Update,
+            ]
+        }
+    }
+
+    fn title(self, app: &App) -> String {
+        let title = match self {
+            Self::Name => app.text(I18nKey::ColumnName),
+            Self::Source => app.text(I18nKey::ColumnSource),
+            Self::Scope => app.text(I18nKey::ColumnScope),
+            Self::State => app.text(I18nKey::ColumnState),
+            Self::Risk => app.text(I18nKey::ColumnRisk),
+            Self::Update => app.text(I18nKey::ColumnUpdate),
+        };
+        if self.sort_column() == app.sort_column() {
+            let marker = if app.sort_ascending() { "↑" } else { "↓" };
+            format!("{marker} {title}")
+        } else {
+            title.to_string()
+        }
+    }
+
+    fn sort_column(self) -> crate::app::SortColumn {
+        match self {
+            Self::Name => crate::app::SortColumn::Name,
+            Self::Source => crate::app::SortColumn::Source,
+            Self::Scope => crate::app::SortColumn::Scope,
+            Self::State => crate::app::SortColumn::State,
+            Self::Risk => crate::app::SortColumn::Risk,
+            Self::Update => crate::app::SortColumn::Update,
+        }
+    }
+
+    fn constraint(self, area_width: u16) -> Constraint {
+        match self {
+            Self::Name if area_width < 58 => Constraint::Percentage(30),
+            Self::Name => Constraint::Percentage(28),
+            Self::Source => Constraint::Percentage(24),
+            Self::Scope => Constraint::Length(8),
+            Self::State => Constraint::Length(10),
+            Self::Risk => Constraint::Length(8),
+            Self::Update => Constraint::Min(8),
+        }
+    }
+
+    fn cell(self, skill: &crate::skill::SkillRecord, theme: ThemePalette) -> Cell<'static> {
+        match self {
+            Self::Name => Cell::from(skill.name.clone()),
+            Self::Source => Cell::from(skill.source.label().to_string()),
+            Self::Scope => Cell::from(skill.scope.label()),
+            Self::State => Cell::from(state_line(skill.state, theme)),
+            Self::Risk => Cell::from(risk_line(skill.risk, theme)),
+            Self::Update => Cell::from(skill.update_label().to_string()),
+        }
+    }
+}
+
 fn render_table(
     app: &App,
     frame: &mut Frame<'_>,
     area: ratatui::layout::Rect,
     theme: ThemePalette,
 ) {
-    let header = Row::new([
-        Cell::from(Span::styled(app.text(I18nKey::ColumnName), theme.label())),
-        Cell::from(Span::styled(app.text(I18nKey::ColumnSource), theme.label())),
-        Cell::from(Span::styled(app.text(I18nKey::ColumnScope), theme.label())),
-        Cell::from(Span::styled(app.text(I18nKey::ColumnState), theme.label())),
-        Cell::from(Span::styled(app.text(I18nKey::ColumnRisk), theme.label())),
-        Cell::from(Span::styled(app.text(I18nKey::ColumnUpdate), theme.label())),
-    ]);
+    let columns = TableColumn::visible(area.width);
+    let header = Row::new(columns.iter().map(|column| {
+        Cell::from(Span::styled(
+            column.title(app),
+            theme.label().add_modifier(Modifier::BOLD),
+        ))
+    }))
+    .bottom_margin(1);
 
-    let rows = app
-        .visible_skills()
+    let visible = app.visible_skills();
+    let row_capacity = usize::from(area.height.saturating_sub(3)).max(1);
+    let start = table_window_start(app.selected_index(), visible.len(), row_capacity);
+    let rows = visible
         .into_iter()
         .enumerate()
+        .skip(start)
+        .take(row_capacity)
         .map(|(index, (_, skill))| {
-            let marker = if index == app.selected_index() {
-                "> "
-            } else {
-                "  "
-            };
             let style = if index == app.selected_index() {
                 theme.selected()
             } else {
                 theme.value()
             };
 
-            Row::new([
-                Cell::from(format!("{marker}{}", skill.name)),
-                Cell::from(skill.source.label().to_string()),
-                Cell::from(skill.scope.label()),
-                Cell::from(state_line(skill.state, theme)),
-                Cell::from(risk_line(skill.risk, theme)),
-                Cell::from(skill.update_label().to_string()),
-            ])
-            .style(style)
+            Row::new(columns.iter().map(|column| column.cell(skill, theme))).style(style)
         });
 
-    let table = Table::new(
-        rows,
-        [
-            ratatui::layout::Constraint::Percentage(24),
-            ratatui::layout::Constraint::Percentage(24),
-            ratatui::layout::Constraint::Length(8),
-            ratatui::layout::Constraint::Length(8),
-            ratatui::layout::Constraint::Length(8),
-            ratatui::layout::Constraint::Min(8),
-        ],
-    )
-    .header(header)
-    .block(focused_block(
-        app.text(I18nKey::PanelSkills),
-        app.focus() == FocusArea::Table,
-        theme,
-    ));
+    let constraints = columns
+        .iter()
+        .map(|column| column.constraint(area.width))
+        .collect::<Vec<_>>();
+
+    let table = Table::new(rows, constraints)
+        .header(header)
+        .column_spacing(2)
+        .block(titled_block(
+            app.text(I18nKey::PanelSkills),
+            app.focus() == FocusArea::Table,
+            theme,
+        ));
 
     frame.render_widget(table, area);
+}
+
+fn table_window_start(selected: usize, total: usize, capacity: usize) -> usize {
+    if total <= capacity || selected < capacity {
+        0
+    } else {
+        selected.saturating_add(1).saturating_sub(capacity)
+    }
 }
 
 fn render_details(
@@ -185,54 +381,44 @@ fn render_details(
     let lines = match app.selected_skill() {
         Some(skill) => vec![
             Line::from(vec![
-                Span::styled(app.text(I18nKey::DetailName), theme.label()),
+                Span::styled("◇ ", theme.title()),
                 Span::styled(skill.name.clone(), theme.info()),
             ]),
+            Line::from(skill.description.clone()),
+            Line::from(""),
             Line::from(vec![
-                Span::styled(app.text(I18nKey::DetailScope), theme.label()),
-                Span::styled(skill.scope.label(), theme.value()),
-            ]),
-            Line::from(vec![
-                Span::styled(app.text(I18nKey::DetailState), theme.label()),
-                Span::styled(skill.state.label(), theme.value()),
+                Span::styled(app.text(I18nKey::DetailVersion), theme.label()),
+                Span::styled(skill.version_label(), theme.value()),
             ]),
             Line::from(vec![
                 Span::styled(app.text(I18nKey::DetailSource), theme.label()),
                 Span::styled(skill.source.label(), theme.value()),
             ]),
             Line::from(vec![
-                Span::styled(app.text(I18nKey::DetailVersion), theme.label()),
-                Span::styled(skill.version_label(), theme.value()),
+                Span::styled(app.text(I18nKey::DetailScope), theme.label()),
+                Span::styled(skill.scope.label(), theme.value()),
             ]),
             Line::from(vec![
                 Span::styled(app.text(I18nKey::DetailPath), theme.label()),
                 Span::styled(skill.path.display().to_string(), theme.value()),
             ]),
+            Line::from(""),
+            Line::from(vec![
+                Span::styled(app.text(I18nKey::DetailState), theme.label()),
+                Span::styled(skill.state.label(), state_style(skill.state, theme)),
+            ]),
+            Line::from(vec![
+                Span::styled(app.text(I18nKey::DetailRisk), theme.label()),
+                Span::styled(skill.risk.label(), risk_style(skill.risk, theme)),
+            ]),
             Line::from(vec![
                 Span::styled(app.text(I18nKey::DetailAgents), theme.label()),
                 Span::styled(agents_summary(skill), theme.value()),
             ]),
-            Line::from(vec![
-                Span::styled(app.text(I18nKey::DetailMetadata), theme.label()),
-                Span::styled(skill.metadata_label(), theme.value()),
-            ]),
-            Line::from(vec![
-                Span::styled(app.text(I18nKey::DetailRisk), theme.label()),
-                Span::styled(skill.risk.label(), theme.value()),
-            ]),
+            Line::from(""),
             Line::from(vec![
                 Span::styled(app.text(I18nKey::DetailFiles), theme.label()),
-                Span::styled(
-                    format!(
-                        "{} files, {} dirs, {} refs, {} assets, {} lines",
-                        skill.stats.files,
-                        skill.stats.directories,
-                        skill.stats.references,
-                        skill.stats.assets,
-                        skill.stats.line_count
-                    ),
-                    theme.value(),
-                ),
+                Span::styled(files_summary(skill), theme.value()),
             ]),
             Line::from(vec![
                 Span::styled(app.text(I18nKey::DetailScripts), theme.label()),
@@ -240,15 +426,16 @@ fn render_details(
             ]),
             Line::from(vec![
                 Span::styled(app.text(I18nKey::DetailActions), theme.label()),
-                Span::styled(action_summary(skill), theme.muted()),
+                Span::styled(action_summary(skill), theme.value()),
+            ]),
+            Line::from(""),
+            Line::from(vec![
+                Span::styled(app.text(I18nKey::DetailMetadata), theme.label()),
+                Span::styled(skill.metadata_label(), theme.muted()),
             ]),
             Line::from(vec![
                 Span::styled(app.text(I18nKey::DetailError), theme.label()),
                 Span::styled(skill.error.as_deref().unwrap_or("none"), theme.value()),
-            ]),
-            Line::from(vec![
-                Span::styled(app.text(I18nKey::DetailDescription), theme.label()),
-                Span::styled(skill.description.clone(), theme.value()),
             ]),
             Line::from(vec![
                 Span::styled(app.text(I18nKey::DetailTags), theme.label()),
@@ -264,13 +451,25 @@ fn render_details(
     frame.render_widget(
         Paragraph::new(lines)
             .style(theme.value())
-            .block(focused_block(
+            .block(titled_block(
                 app.text(I18nKey::PanelDetails),
                 app.focus() == FocusArea::Details,
                 theme,
-            )),
+            ))
+            .wrap(Wrap { trim: false }),
         area,
     );
+}
+
+fn files_summary(skill: &crate::skill::SkillRecord) -> String {
+    format!(
+        "{} files, {} dirs, {} refs, {} assets, {} lines",
+        skill.stats.files,
+        skill.stats.directories,
+        skill.stats.references,
+        skill.stats.assets,
+        skill.stats.line_count
+    )
 }
 
 fn csv_or_none(values: &[String]) -> String {
@@ -305,55 +504,38 @@ fn render_stats(
         .filter(|skill| skill.risk == RiskLevel::High)
         .count();
 
+    let filter_status = if has_active_filters(app) {
+        app.text(I18nKey::StatusActive)
+    } else {
+        "none"
+    };
     let lines = vec![
         Line::from(vec![
-            Span::styled(app.text(I18nKey::StatFilters), theme.muted()),
-            if has_active_filters(app) {
-                Span::styled(app.text(I18nKey::StatusActive), theme.warning())
-            } else if app.focus() == FocusArea::Filters {
-                Span::styled(app.text(I18nKey::StatusFocused), theme.info())
-            } else {
-                Span::styled(app.text(I18nKey::StatusReady), theme.muted())
-            },
+            Span::styled(visible.to_string(), theme.title()),
+            Span::styled(" visible skills | ", theme.value()),
+            Span::styled(total.to_string(), theme.title()),
+            Span::styled(" total | ", theme.value()),
+            Span::styled(local.to_string(), theme.title()),
+            Span::styled(" local | ", theme.value()),
+            Span::styled(updates.to_string(), theme.title()),
+            Span::styled(" updates | ", theme.value()),
+            Span::styled(high_risk.to_string(), theme.title()),
+            Span::styled(" high risk", theme.value()),
         ]),
         Line::from(vec![
-            Span::styled(app.text(I18nKey::StatSettings), theme.muted()),
-            if app.focus() == FocusArea::Settings {
-                Span::styled(app.text(I18nKey::StatusFocused), theme.info())
-            } else {
-                Span::styled(app.text(I18nKey::StatusPlaceholder), theme.muted())
-            },
-        ]),
-        Line::from(vec![
-            Span::styled(app.text(I18nKey::StatVisible), theme.muted()),
-            Span::styled(visible.to_string(), theme.label()),
-        ]),
-        Line::from(vec![
-            Span::styled(app.text(I18nKey::StatTotal), theme.muted()),
-            Span::styled(total.to_string(), theme.label()),
-        ]),
-        Line::from(vec![
-            Span::styled(app.text(I18nKey::StatLocal), theme.muted()),
-            Span::styled(local.to_string(), theme.info()),
-        ]),
-        Line::from(vec![
-            Span::styled(app.text(I18nKey::StatUpdates), theme.muted()),
-            Span::styled(updates.to_string(), theme.warning()),
-        ]),
-        Line::from(vec![
-            Span::styled(app.text(I18nKey::StatHighRisk), theme.muted()),
-            Span::styled(high_risk.to_string(), theme.error()),
+            Span::styled("Filter ", theme.muted()),
+            Span::styled(filter_status, theme.info()),
+            Span::styled(" | Source ", theme.muted()),
+            Span::styled(filter_source_label(app), theme.info()),
+            Span::styled(" | Scope ", theme.muted()),
+            Span::styled(filter_scope_label(app), theme.info()),
         ]),
     ];
 
     frame.render_widget(
         Paragraph::new(lines)
             .style(theme.value())
-            .block(focused_block(
-                app.text(I18nKey::PanelStats),
-                matches!(app.focus(), FocusArea::Filters | FocusArea::Settings),
-                theme,
-            )),
+            .wrap(Wrap { trim: false }),
         area,
     );
 }
@@ -405,9 +587,14 @@ fn render_output(
     area: ratatui::layout::Rect,
     theme: ThemePalette,
 ) {
+    let output = app.output();
+    let line_capacity = usize::from(area.height.saturating_sub(2)).max(1);
+    let start = output_window_start(output.len(), line_capacity);
     let lines: Vec<Line<'static>> = app
         .output()
         .iter()
+        .skip(start)
+        .take(line_capacity)
         .map(|line| {
             Line::from(vec![
                 Span::styled("> ", theme.muted()),
@@ -425,71 +612,147 @@ fn render_output(
     );
 }
 
-fn render_help(app: &App, frame: &mut Frame<'_>, area: ratatui::layout::Rect, theme: ThemePalette) {
+fn output_window_start(total: usize, capacity: usize) -> usize {
+    total.saturating_sub(capacity)
+}
+
+fn render_help(
+    _app: &App,
+    frame: &mut Frame<'_>,
+    area: ratatui::layout::Rect,
+    theme: ThemePalette,
+) {
     let key_style = theme.title();
     let text_style = theme.muted();
-    let mut spans = if area.width < 90 {
+    let lines = if area.width < 100 {
         vec![
-            Span::styled(" q ", key_style),
-            Span::styled(app.text(I18nKey::KeyQuit), text_style),
-            Span::styled(" / ", key_style),
-            Span::styled(app.text(I18nKey::KeySearch), text_style),
-            Span::styled(" ? ", key_style),
-            Span::styled(app.text(I18nKey::KeyHelp), text_style),
-            Span::styled(" , ", key_style),
-            Span::styled(app.text(I18nKey::KeySettings), text_style),
-            Span::styled(" Tab ", key_style),
-            Span::styled(app.text(I18nKey::KeyFocus), text_style),
-            Span::styled(" i/u/U/x/o/y ", key_style),
-            Span::styled(app.text(I18nKey::KeyActions), text_style),
+            help_line(
+                "General   : ",
+                [
+                    ("q", "quit"),
+                    ("R", "refresh"),
+                    ("/", "search"),
+                    ("?", "help"),
+                ],
+                key_style,
+                text_style,
+            ),
+            help_line(
+                "Navigation: ",
+                [
+                    ("j/↓", "down"),
+                    ("k/↑", "up"),
+                    ("PgUp", "prev"),
+                    ("PgDn", "next"),
+                ],
+                key_style,
+                text_style,
+            ),
+            help_line(
+                "Filter    : ",
+                [
+                    ("a", "all"),
+                    ("f", "source"),
+                    ("i", "local"),
+                    ("o", "updates"),
+                ],
+                key_style,
+                text_style,
+            ),
+            help_line(
+                "Commands  : ",
+                [
+                    ("h", "open"),
+                    ("t", "install"),
+                    ("u", "update"),
+                    ("x", "remove"),
+                ],
+                key_style,
+                text_style,
+            ),
         ]
     } else {
         vec![
-            Span::styled(" q ", key_style),
-            Span::styled(app.text(I18nKey::KeyQuit), text_style),
-            Span::styled(" / ", key_style),
-            Span::styled(app.text(I18nKey::KeySearch), text_style),
-            Span::styled(" ? ", key_style),
-            Span::styled(app.text(I18nKey::KeyHelp), text_style),
-            Span::styled(" , ", key_style),
-            Span::styled(app.text(I18nKey::KeySettings), text_style),
-            Span::styled(" Tab ", key_style),
-            Span::styled(app.text(I18nKey::KeyFocus), text_style),
-            Span::styled(" Enter ", key_style),
-            Span::styled(app.text(I18nKey::KeySelect), text_style),
+            help_line(
+                "General   : ",
+                [
+                    ("q", "quit"),
+                    ("R", "refresh"),
+                    ("tab", "switch focus"),
+                    ("/", "search"),
+                    ("esc", "clear search"),
+                    ("enter", "exit search"),
+                    ("s/S", "sort"),
+                ],
+                key_style,
+                text_style,
+            ),
+            help_line(
+                "Navigation: ",
+                [
+                    ("j/↓", "cursor down"),
+                    ("k/↑", "cursor up"),
+                    ("PageUp", "prev page"),
+                    ("PageDown", "next page"),
+                    ("g", "go to top"),
+                    ("G", "go to bottom"),
+                ],
+                key_style,
+                text_style,
+            ),
+            help_line(
+                "Filter    : ",
+                [
+                    ("a", "all"),
+                    ("f", "source"),
+                    ("i", "local"),
+                    ("o", "updates"),
+                    ("v", "active"),
+                ],
+                key_style,
+                text_style,
+            ),
+            help_line(
+                "Commands  : ",
+                [
+                    ("h", "open path"),
+                    ("t", "install"),
+                    ("u", "update"),
+                    ("U", "update all"),
+                    ("x", "remove"),
+                    ("y", "copy path"),
+                    (",", "settings"),
+                ],
+                key_style,
+                text_style,
+            ),
         ]
     };
 
-    if area.width >= 140 {
-        spans.extend([
-            Span::styled(" i ", key_style),
-            Span::styled(app.text(I18nKey::KeyInstall), text_style),
-            Span::styled(" u ", key_style),
-            Span::styled(app.text(I18nKey::KeyUpdate), text_style),
-            Span::styled(" U ", key_style),
-            Span::styled(app.text(I18nKey::KeyUpdateAll), text_style),
-            Span::styled(" x ", key_style),
-            Span::styled(app.text(I18nKey::KeyRemove), text_style),
-            Span::styled(" o ", key_style),
-            Span::styled(app.text(I18nKey::KeyOpen), text_style),
-            Span::styled(" y ", key_style),
-            Span::styled(app.text(I18nKey::KeyCopy), text_style),
-        ]);
-    } else if area.width >= 90 {
-        spans.extend([
-            Span::styled(" i/u/U/x/o/y ", key_style),
-            Span::styled(app.text(I18nKey::KeyActions), text_style),
-        ]);
-    }
-
-    let help = Line::from(spans);
-
     frame.render_widget(
-        Paragraph::new(help)
+        Paragraph::new(lines)
             .style(theme.value())
-            .block(focused_block("", false, theme)),
+            .wrap(Wrap { trim: false }),
         area,
     );
+}
+
+fn help_line<const N: usize>(
+    label: &'static str,
+    parts: [(&'static str, &'static str); N],
+    key_style: Style,
+    text_style: Style,
+) -> Line<'static> {
+    let mut spans = vec![Span::styled(label, text_style)];
+    for (index, (key, text)) in parts.into_iter().enumerate() {
+        if index > 0 {
+            spans.push(Span::raw(" "));
+        }
+        spans.push(Span::styled(key, key_style));
+        spans.push(Span::styled(": ", text_style));
+        spans.push(Span::styled(text, text_style));
+    }
+    Line::from(spans)
 }
 
 fn render_action_confirmation(
@@ -688,41 +951,50 @@ fn centered_rect(
 }
 
 fn state_line(state: SkillState, theme: ThemePalette) -> Line<'static> {
+    Line::from(Span::styled(state.label(), state_style(state, theme)))
+}
+
+fn state_style(state: SkillState, theme: ThemePalette) -> Style {
     match state {
-        SkillState::Ready => Line::from(Span::styled("Ready", theme.success())),
-        SkillState::Active => Line::from(Span::styled("Active", theme.info())),
-        SkillState::UpdateAvailable => Line::from(Span::styled("Update", theme.warning())),
-        SkillState::Installed => Line::from(Span::styled("Installed", theme.success())),
-        SkillState::LocalOnly => {
-            Line::from(Span::styled("Local", Style::new().fg(theme.secondary)))
-        }
-        SkillState::RemoteOnly => Line::from(Span::styled("Remote", theme.muted())),
-        SkillState::Installable => Line::from(Span::styled("Install", theme.info())),
-        SkillState::AuthError => Line::from(Span::styled("Auth", theme.error())),
-        SkillState::SchemaError => Line::from(Span::styled("Schema", theme.error())),
-        SkillState::NetworkDegraded => Line::from(Span::styled("Degraded", theme.warning())),
-        SkillState::Unknown => Line::from(Span::styled("Unknown", theme.muted())),
-        SkillState::Error => Line::from(Span::styled("Error", theme.error())),
+        SkillState::Ready | SkillState::Installed => theme.success(),
+        SkillState::Active | SkillState::Installable => theme.info(),
+        SkillState::UpdateAvailable | SkillState::NetworkDegraded => theme.warning(),
+        SkillState::LocalOnly => Style::new().fg(theme.secondary),
+        SkillState::RemoteOnly | SkillState::Unknown => theme.muted(),
+        SkillState::AuthError | SkillState::SchemaError | SkillState::Error => theme.error(),
     }
 }
 
 fn risk_line(risk: RiskLevel, theme: ThemePalette) -> Line<'static> {
+    Line::from(Span::styled(risk.label(), risk_style(risk, theme)))
+}
+
+fn risk_style(risk: RiskLevel, theme: ThemePalette) -> Style {
     match risk {
-        RiskLevel::None => Line::from(Span::styled("None", theme.muted())),
-        RiskLevel::Low => Line::from(Span::styled("Low", theme.success())),
-        RiskLevel::Medium => Line::from(Span::styled("Medium", theme.warning())),
-        RiskLevel::High => Line::from(Span::styled(
-            "High",
-            theme.error().add_modifier(ratatui::style::Modifier::BOLD),
-        )),
+        RiskLevel::None => theme.muted(),
+        RiskLevel::Low => theme.success(),
+        RiskLevel::Medium => theme.warning(),
+        RiskLevel::High => theme.error().add_modifier(Modifier::BOLD),
     }
 }
 
 fn focused_block(title: &'static str, focused: bool, theme: ThemePalette) -> Block<'static> {
+    titled_block(title, focused, theme)
+}
+
+fn titled_block(title: &'static str, focused: bool, theme: ThemePalette) -> Block<'static> {
     Block::bordered()
         .title(title)
+        .border_set(symbols::border::ROUNDED)
         .border_style(theme.border(focused))
-        .style(Style::new().bg(theme.surface).fg(theme.foreground))
+        .style(Style::new().fg(theme.foreground))
+}
+
+fn plain_block(focused: bool, theme: ThemePalette) -> Block<'static> {
+    Block::bordered()
+        .border_set(symbols::border::ROUNDED)
+        .border_style(theme.border(focused))
+        .style(Style::new().fg(theme.foreground))
 }
 
 #[cfg(test)]
@@ -808,7 +1080,7 @@ mod tests {
                     warnings: Vec::new(),
                 },
             );
-            assert!(render_app_snapshot(app, 120, 40).contains("Skillroom"));
+            assert!(render_app_snapshot(app, 120, 40).contains("Search skills"));
 
             let mut app = App::from_skills_with_config(
                 fixture_skills(),
@@ -826,6 +1098,31 @@ mod tests {
         }
     }
 
+    #[test]
+    fn table_window_keeps_selected_row_visible() {
+        assert_eq!(table_window_start(0, 30, 10), 0);
+        assert_eq!(table_window_start(9, 30, 10), 0);
+        assert_eq!(table_window_start(10, 30, 10), 1);
+        assert_eq!(table_window_start(29, 30, 10), 20);
+        assert_eq!(table_window_start(29, 8, 10), 0);
+    }
+
+    #[test]
+    fn output_window_shows_latest_lines() {
+        assert_eq!(output_window_start(3, 8), 0);
+        assert_eq!(output_window_start(8, 8), 0);
+        assert_eq!(output_window_start(12, 8), 4);
+    }
+
+    #[test]
+    fn loading_screen_renders_before_inventory_is_loaded() {
+        let snapshot = render_loading_snapshot(120, 40);
+
+        assert!(snapshot.contains("Loading"));
+        assert!(snapshot.contains("Loading local skills"));
+        assert!(snapshot.contains("build dashboard; no writes"));
+    }
+
     fn render_snapshot(width: u16, height: u16) -> String {
         render_app_snapshot(App::default(), width, height)
     }
@@ -835,6 +1132,14 @@ mod tests {
         let mut terminal = Terminal::new(backend).unwrap();
 
         terminal.draw(|frame| render(&app, frame)).unwrap();
+        buffer_to_string(terminal.backend().buffer())
+    }
+
+    fn render_loading_snapshot(width: u16, height: u16) -> String {
+        let backend = TestBackend::new(width, height);
+        let mut terminal = Terminal::new(backend).unwrap();
+
+        terminal.draw(|frame| render_loading(frame, 0)).unwrap();
         buffer_to_string(terminal.backend().buffer())
     }
 

@@ -1,45 +1,44 @@
 ---
 source: src/ui.rs
-assertion_line: 788
+assertion_line: 1061
 expression: "render_app_snapshot(app, 120, 40)"
 ---
-┌命 令 ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
-│ Skillroom 5 / 5 skills [/] 搜 索  skills... 焦 点 =Settings 排 序 =名 称  asc                                                │
-└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
-┌Skills────────────────────────────────────────────────────────────────┐┌详 情 ──────────────────────────────────────────┐
-│名 称               来 源              范 围      状 态      风 险      更 新     ││名 称 : code-review                             │
-│> code-review     curated          Local    Update   Medium   1.9.2   ││范 围 : Local                                   │
-│  data-analysis ┌设 置 ────────────────────────────────────────────────────────────────────────────────┐                │
-│  legacy-deploy │设 置   Esc 取 消                                                                       │                │
-│  taproom       │配 置 : skillroom/config.toml                                                         │                │
-│  web-scraper   │                                                                                    │iew             │
-│                │> 主 题                             Tokyo Night  Enter 切 换 主 题                        │                │
-│                │  语 言                             中 文   Enter 切 换 语 言                               │ted             │
+╭──────────────────────────────────────────────────────────────────────────────────╮╭Filters───────────────────────────╮
+│ / Search skills...                                                               ││None                              │
+╰──────────────────────────────────────────────────────────────────────────────────╯╰──────────────────────────────────╯
+
+╭Skills──────────────────────────────────────────────────────────────────────────╮╭详 情 ────────────────────────────────╮
+│↑ 名 称               来 源                 范 围       状 态         风 险       更 新     ││◇ code-review                       │
+│                ╭设 置 ────────────────────────────────────────────────────────────────────────────────╮ with           │
+│code-review     │设 置   Esc 取 消                                                                       │ventions and    │
+│data-analysis   │配 置 : skillroom/config.toml                                                         │                │
+│legacy-deploy   │                                                                                    │                │
+│taproom         │> 主 题                             Tokyo Night  Enter 切 换 主 题                        │                │
+│web-scraper     │  语 言                             中 文   Enter 切 换 语 言                               │                │
 │                │  缓 存  TTL                        1800s  Enter 切 换  TTL                             │                │
-│                │  缓 存                             ready  Enter 清 理 缓 存 状 态                          │, 0 assets, 360 │
+│                │  缓 存                             ready  Enter 清 理 缓 存 状 态                          │s/code-review   │
 │                │  安 全                             已 锁 定   不 能 关 闭 安 全 底 线                           │                │
 │                │  来 源                             1 个 已 配 置   Enter 新 增 禁 用 来 源                     │                │
 │                │  来 源  bytedance-agentbuddy       启 用   Enter 启 用 /禁 用 来 源                          │                │
-│                │  测 试  bytedance-agentbuddy       not-tested  Enter 本 地 测 试 来 源                     │h repository-loc│
+│                │  测 试  bytedance-agentbuddy       not-tested  Enter 本 地 测 试 来 源                     │, agent-2]      │
 │                │  保 存                             持 久 化  config.toml  Enter 写 入 配 置                 │                │
+│                │                                                                                    │rs, 1 refs, 0   │
+│                │                                                                                    │                │
+│                │                                                                                    │w.sh            │
+│                │                                                                                    │                │
+│                │                                                                                    │                │
+│                │                                                                                    │ource=curated   │
+│                │                                                                                    │                │
+│                │                                                                                    │quality         │
 │                │                                                                                    │                │
 │                │                                                                                    │                │
 │                │                                                                                    │                │
-│                │                                                                                    │────────────────┘
-│                │                                                                                    │────────────────┐
 │                │                                                                                    │                │
 │                │                                                                                    │                │
-│                │                                                                                    │                │
-│                │                                                                                    │                │
-│                │                                                                                    │                │
-└────────────────│                                                                                    │────────────────┘
-┌输 出 ────────────│                                                                                    │────────────────┐
-│> [system] Skill│                                                                                    │                │
-│> [skill] Loaded│                                                                                    │                │
-│> [prompt] Ready└────────────────────────────────────────────────────────────────────────────────────┘                │
-│> [error] legacy-deploy: SKILL.md frontmatter is missing required fields                                              │
-│> [settings] Opened settings.                                                                                         │
-└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
-┌──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
-│ q 退 出   / 搜 索   ? 帮 助   , 设 置   Tab 焦 点   Enter 选 择  i/u/U/x/o/y 操 作                                                 │
-└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+╰────────────────│                                                                                    │────────────────╯
+5 visible skills ╰────────────────────────────────────────────────────────────────────────────────────╯
+Filter none | Source 全 部  | Scope 全 部 范 围
+General   : q: quit R: refresh tab: switch focus /: search esc: clear search enter: exit search s/S: sort
+Navigation: j/↓: cursor down k/↑: cursor up PageUp: prev page PageDown: next page g: go to top G: go to bottom
+Filter    : a: all f: source i: local o: updates v: active
+Commands  : h: open path t: install u: update U: update all x: remove y: copy path ,: settings

@@ -1,45 +1,44 @@
 ---
 source: src/ui.rs
-assertion_line: 770
+assertion_line: 1043
 expression: "render_app_snapshot(app, 120, 40)"
 ---
-┌命 令 ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
-│ Skillroom 5 / 5 skills [/] 搜 索  skills... 焦 点 =Table 排 序 =名 称  asc                                                   │
-└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
-┌Skills────────────────────────────────────────────────────────────────┐┌详 情 ──────────────────────────────────────────┐
-│名 称               来 源              范 围      状 态      风 险      更 新     ││名 称 : code-review                             │
-│> code-review     curated          Local    Update   Medium   1.9.2   ││范 围 : Local                                   │
-│  data-analysis   skills.bytedance Global   Active   Low      current ││状 态 : Update                                  │
-│  legacy-deploy   local/archive    Local    Error    High     blocked ││来 源 : curated                                 │
-│  taproom         local/git        Local    Ready    None     current ││版 本 : 1.8.0                                   │
-│  web-scraper     github           Global   Ready    Low      current ││路 径 : ~/.codex/skills/code-review             │
-│                                                                      ││Agents: 2/2 [agent-1, agent-2]                │
-│                                                                      ││元 数 据 : installed, source=curated             │
-│                                                                      ││风 险 : Medium                                  │
-│                                                                      ││文 件 : 12 files, 2 dirs, 1 refs, 0 assets, 360 │
-│                                                                      ││脚 本 : lint.sh, review.sh                      │
-│                                                                      ││操 作 : update, remove                          │
-│                                                                      ││错 误 : none                                    │
-│                                                                      ││描 述 : Review pull requests with repository-loc│
-│                                                                      ││标 签 : code, review, quality                   │
-│                                                                      ││                                              │
-│                                                                      ││                                              │
-│                                                                      ││                                              │
-│                                                                      │└──────────────────────────────────────────────┘
-│                                                                      │┌统 计 ──────────────────────────────────────────┐
-│                                                                      ││过 滤  就 绪                                      │
-│                                                                      ││设 置  占 位                                      │
-│                                                                      ││可 见  5                                        │
-│                                                                      ││总 数  5                                        │
-│                                                                      ││本 地  3                                        │
-└──────────────────────────────────────────────────────────────────────┘└──────────────────────────────────────────────┘
-┌输 出 ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
-│> [system] Skillroom daemon started.                                                                                  │
-│> [skill] Loaded 5 skills from local inventory.                                                                       │
-│> [prompt] Ready for command.                                                                                         │
-│> [error] legacy-deploy: SKILL.md frontmatter is missing required fields                                              │
-│                                                                                                                      │
-└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
-┌──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
-│ q 退 出   / 搜 索   ? 帮 助   , 设 置   Tab 焦 点   Enter 选 择  i/u/U/x/o/y 操 作                                                 │
-└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+╭──────────────────────────────────────────────────────────────────────────────────╮╭Filters───────────────────────────╮
+│ / Search skills...                                                               ││None                              │
+╰──────────────────────────────────────────────────────────────────────────────────╯╰──────────────────────────────────╯
+
+╭Skills──────────────────────────────────────────────────────────────────────────╮╭详 情 ────────────────────────────────╮
+│↑ 名 称               来 源                 范 围       状 态         风 险       更 新     ││◇ code-review                       │
+│                                                                                ││Review pull requests with           │
+│code-review         curated             Local     Update      Medium    1.9.2   ││repository-local conventions and    │
+│data-analysis       skills.bytedance.n  Global    Active      Low       current ││test gates.                         │
+│legacy-deploy       local/archive       Local     Error       High      blocked ││                                    │
+│taproom             local/git           Local     Ready       None      current ││版 本 : 1.8.0                         │
+│web-scraper         github              Global    Ready       Low       current ││来 源 : curated                       │
+│                                                                                ││范 围 : Local                         │
+│                                                                                ││路 径 : ~/.codex/skills/code-review   │
+│                                                                                ││                                    │
+│                                                                                ││状 态 : Update                        │
+│                                                                                ││风 险 : Medium                        │
+│                                                                                ││Agents: 2/2 [agent-1, agent-2]      │
+│                                                                                ││                                    │
+│                                                                                ││文 件 : 12 files, 2 dirs, 1 refs, 0   │
+│                                                                                ││assets, 360 lines                   │
+│                                                                                ││脚 本 : lint.sh, review.sh            │
+│                                                                                ││操 作 : update, remove                │
+│                                                                                ││                                    │
+│                                                                                ││元 数 据 : installed, source=curated   │
+│                                                                                ││错 误 : none                          │
+│                                                                                ││标 签 : code, review, quality         │
+│                                                                                ││                                    │
+│                                                                                ││                                    │
+│                                                                                ││                                    │
+│                                                                                ││                                    │
+│                                                                                ││                                    │
+╰────────────────────────────────────────────────────────────────────────────────╯╰────────────────────────────────────╯
+5 visible skills | 5 total | 3 local | 1 updates | 1 high risk
+Filter none | Source 全 部  | Scope 全 部 范 围
+General   : q: quit R: refresh tab: switch focus /: search esc: clear search enter: exit search s/S: sort
+Navigation: j/↓: cursor down k/↑: cursor up PageUp: prev page PageDown: next page g: go to top G: go to bottom
+Filter    : a: all f: source i: local o: updates v: active
+Commands  : h: open path t: install u: update U: update all x: remove y: copy path ,: settings

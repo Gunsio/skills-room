@@ -1,45 +1,44 @@
 ---
 source: src/ui.rs
-assertion_line: 743
+assertion_line: 1016
 expression: "render_snapshot(120, 40)"
 ---
-┌Command───────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
-│ Skillroom 5 / 5 skills [/] Search skills... focus=Table sort=Name asc                                                │
-└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
-┌Skills────────────────────────────────────────────────────────────────┐┌Details───────────────────────────────────────┐
-│Name              Source           Scope    State    Risk     Update  ││Name: code-review                             │
-│> code-review     curated          Local    Update   Medium   1.9.2   ││Scope: Local                                  │
-│  data-analysis   skills.bytedance Global   Active   Low      current ││State: Update                                 │
-│  legacy-deploy   local/archive    Local    Error    High     blocked ││Source: curated                               │
-│  taproom         local/git        Local    Ready    None     current ││Version: 1.8.0                                │
-│  web-scraper     github           Global   Ready    Low      current ││Path: ~/.codex/skills/code-review             │
-│                                                                      ││Agents: 2/2 [agent-1, agent-2]                │
-│                                                                      ││Metadata: installed, source=curated           │
-│                                                                      ││Risk: Medium                                  │
-│                                                                      ││Files: 12 files, 2 dirs, 1 refs, 0 assets, 360│
-│                                                                      ││Scripts: lint.sh, review.sh                   │
-│                                                                      ││Actions: update, remove                       │
-│                                                                      ││Error: none                                   │
-│                                                                      ││Description: Review pull requests with reposit│
-│                                                                      ││Tags: code, review, quality                   │
-│                                                                      ││                                              │
-│                                                                      ││                                              │
-│                                                                      ││                                              │
-│                                                                      │└──────────────────────────────────────────────┘
-│                                                                      │┌Stats─────────────────────────────────────────┐
-│                                                                      ││Filters ready                                 │
-│                                                                      ││Settings placeholder                          │
-│                                                                      ││Visible 5                                     │
-│                                                                      ││Total 5                                       │
-│                                                                      ││Local 3                                       │
-└──────────────────────────────────────────────────────────────────────┘└──────────────────────────────────────────────┘
-┌Output────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
-│> [system] Skillroom daemon started.                                                                                  │
-│> [skill] Loaded 5 skills from local inventory.                                                                       │
-│> [prompt] Ready for command.                                                                                         │
-│> [error] legacy-deploy: SKILL.md frontmatter is missing required fields                                              │
-│                                                                                                                      │
-└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
-┌──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
-│ q quit  / search  ? help  , settings  Tab focus  Enter select i/u/U/x/o/y actions                                    │
-└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+╭──────────────────────────────────────────────────────────────────────────────────╮╭Filters───────────────────────────╮
+│ / Search skills...                                                               ││None                              │
+╰──────────────────────────────────────────────────────────────────────────────────╯╰──────────────────────────────────╯
+
+╭Skills──────────────────────────────────────────────────────────────────────────╮╭Details─────────────────────────────╮
+│↑ Name              Source              Scope     State       Risk      Update  ││◇ code-review                       │
+│                                                                                ││Review pull requests with           │
+│code-review         curated             Local     Update      Medium    1.9.2   ││repository-local conventions and    │
+│data-analysis       skills.bytedance.n  Global    Active      Low       current ││test gates.                         │
+│legacy-deploy       local/archive       Local     Error       High      blocked ││                                    │
+│taproom             local/git           Local     Ready       None      current ││Version: 1.8.0                      │
+│web-scraper         github              Global    Ready       Low       current ││Source: curated                     │
+│                                                                                ││Scope: Local                        │
+│                                                                                ││Path: ~/.codex/skills/code-review   │
+│                                                                                ││                                    │
+│                                                                                ││State: Update                       │
+│                                                                                ││Risk: Medium                        │
+│                                                                                ││Agents: 2/2 [agent-1, agent-2]      │
+│                                                                                ││                                    │
+│                                                                                ││Files: 12 files, 2 dirs, 1 refs, 0  │
+│                                                                                ││assets, 360 lines                   │
+│                                                                                ││Scripts: lint.sh, review.sh         │
+│                                                                                ││Actions: update, remove             │
+│                                                                                ││                                    │
+│                                                                                ││Metadata: installed, source=curated │
+│                                                                                ││Error: none                         │
+│                                                                                ││Tags: code, review, quality         │
+│                                                                                ││                                    │
+│                                                                                ││                                    │
+│                                                                                ││                                    │
+│                                                                                ││                                    │
+│                                                                                ││                                    │
+╰────────────────────────────────────────────────────────────────────────────────╯╰────────────────────────────────────╯
+5 visible skills | 5 total | 3 local | 1 updates | 1 high risk
+Filter none | Source all | Scope all scopes
+General   : q: quit R: refresh tab: switch focus /: search esc: clear search enter: exit search s/S: sort
+Navigation: j/↓: cursor down k/↑: cursor up PageUp: prev page PageDown: next page g: go to top G: go to bottom
+Filter    : a: all f: source i: local o: updates v: active
+Commands  : h: open path t: install u: update U: update all x: remove y: copy path ,: settings

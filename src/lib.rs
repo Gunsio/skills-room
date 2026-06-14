@@ -26,8 +26,10 @@ pub use app::{App, FilterState, FocusArea, InputMode, SortColumn};
 pub fn run() -> color_eyre::Result<()> {
     color_eyre::install()?;
 
-    let terminal = ratatui::init();
+    let mut terminal = ratatui::init();
     let _guard = terminal::TerminalGuard;
+
+    terminal.draw(|frame| ui::render_loading(frame, 0))?;
 
     App::load_local_or_fixture().run(terminal)
 }
