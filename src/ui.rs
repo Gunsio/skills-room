@@ -4,7 +4,7 @@ use ratatui::{
     style::{Modifier, Style},
     symbols,
     text::{Line, Span},
-    widgets::{Block, Cell, Paragraph, Row, Table, Wrap},
+    widgets::{Block, Cell, Paragraph, Row, Table, TableState, Wrap},
 };
 
 use crate::{
@@ -230,6 +230,7 @@ fn push_filter_part(spans: &mut Vec<Span<'static>>, label: &'static str, value: 
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 enum TableColumn {
+    Icon,
     Name,
     Source,
     Scope,
@@ -241,9 +242,16 @@ enum TableColumn {
 impl TableColumn {
     fn visible(area_width: u16) -> Vec<Self> {
         if area_width < 58 {
-            vec![Self::Name, Self::Source, Self::Scope, Self::State]
+            vec![
+                Self::Icon,
+                Self::Name,
+                Self::Source,
+                Self::Scope,
+                Self::State,
+            ]
         } else if area_width < 82 {
             vec![
+                Self::Icon,
                 Self::Name,
                 Self::Source,
                 Self::Scope,
@@ -252,6 +260,7 @@ impl TableColumn {
             ]
         } else {
             vec![
+                Self::Icon,
                 Self::Name,
                 Self::Source,
                 Self::Scope,
@@ -263,7 +272,12 @@ impl TableColumn {
     }
 
     fn title(self, app: &App) -> String {
+        if self == Self::Icon {
+            return String::new();
+        }
+
         let title = match self {
+            Self::Icon => "",
             Self::Name => app.text(I18nKey::ColumnName),
             Self::Source => app.text(I18nKey::ColumnSource),
             Self::Scope => app.text(I18nKey::ColumnScope),
@@ -281,6 +295,7 @@ impl TableColumn {
 
     fn sort_column(self) -> crate::app::SortColumn {
         match self {
+            Self::Icon => crate::app::SortColumn::Name,
             Self::Name => crate::app::SortColumn::Name,
             Self::Source => crate::app::SortColumn::Source,
             Self::Scope => crate::app::SortColumn::Scope,
@@ -292,8 +307,9 @@ impl TableColumn {
 
     fn constraint(self, area_width: u16) -> Constraint {
         match self {
-            Self::Name if area_width < 58 => Constraint::Percentage(30),
-            Self::Name => Constraint::Percentage(28),
+            Self::Icon => Constraint::Length(2),
+            Self::Name if area_width < 58 => Constraint::Percentage(31),
+            Self::Name => Constraint::Percentage(27),
             Self::Source => Constraint::Percentage(24),
             Self::Scope => Constraint::Length(8),
             Self::State => Constraint::Length(10),
@@ -304,6 +320,7 @@ impl TableColumn {
 
     fn cell(self, skill: &crate::skill::SkillRecord, theme: ThemePalette) -> Cell<'static> {
         match self {
+            Self::Icon => Cell::from(skill_icon(skill, theme)),
             Self::Name => Cell::from(skill.name.clone()),
             Self::Source => Cell::from(skill.source.label().to_string()),
             Self::Scope => Cell::from(skill.scope.label()),
@@ -330,22 +347,15 @@ fn render_table(
     .bottom_margin(1);
 
     let visible = app.visible_skills();
-    let row_capacity = usize::from(area.height.saturating_sub(3)).max(1);
-    let start = table_window_start(app.selected_index(), visible.len(), row_capacity);
-    let rows = visible
-        .into_iter()
-        .enumerate()
-        .skip(start)
-        .take(row_capacity)
-        .map(|(index, (_, skill))| {
-            let style = if index == app.selected_index() {
-                theme.selected()
-            } else {
-                theme.value()
-            };
+    let rows = visible.into_iter().enumerate().map(|(index, (_, skill))| {
+        let style = if index == app.selected_index() {
+            theme.selected()
+        } else {
+            theme.value()
+        };
 
-            Row::new(columns.iter().map(|column| column.cell(skill, theme))).style(style)
-        });
+        Row::new(columns.iter().map(|column| column.cell(skill, theme))).style(style)
+    });
 
     let constraints = columns
         .iter()
@@ -355,21 +365,40 @@ fn render_table(
     let table = Table::new(rows, constraints)
         .header(header)
         .column_spacing(2)
+        .row_highlight_style(theme.selected())
         .block(titled_block(
             app.text(I18nKey::PanelSkills),
             app.focus() == FocusArea::Table,
             theme,
         ));
 
-    frame.render_widget(table, area);
+    let mut state = TableState::default()
+        .with_selected((!app.visible_skills().is_empty()).then_some(app.selected_index()));
+    frame.render_stateful_widget(table, area, &mut state);
 }
 
-fn table_window_start(selected: usize, total: usize, capacity: usize) -> usize {
-    if total <= capacity || selected < capacity {
-        0
+fn skill_icon(skill: &crate::skill::SkillRecord, theme: ThemePalette) -> Line<'static> {
+    let (icon, style) = if skill.error.is_some()
+        || matches!(
+            skill.state,
+            SkillState::AuthError | SkillState::SchemaError | SkillState::Error
+        ) {
+        ("!", theme.error().add_modifier(Modifier::BOLD))
+    } else if skill.risk == RiskLevel::High {
+        ("▲", theme.error().add_modifier(Modifier::BOLD))
+    } else if skill.state == SkillState::UpdateAvailable {
+        ("↻", theme.warning().add_modifier(Modifier::BOLD))
+    } else if matches!(skill.state, SkillState::Installed | SkillState::LocalOnly)
+        || skill.metadata.installed
+    {
+        ("◆", theme.title())
+    } else if skill.metadata.installable || skill.state == SkillState::Installable {
+        ("◇", theme.info())
     } else {
-        selected.saturating_add(1).saturating_sub(capacity)
-    }
+        ("•", theme.muted())
+    };
+
+    Line::from(Span::styled(icon, style))
 }
 
 fn render_details(
@@ -1099,12 +1128,22 @@ mod tests {
     }
 
     #[test]
-    fn table_window_keeps_selected_row_visible() {
-        assert_eq!(table_window_start(0, 30, 10), 0);
-        assert_eq!(table_window_start(9, 30, 10), 0);
-        assert_eq!(table_window_start(10, 30, 10), 1);
-        assert_eq!(table_window_start(29, 30, 10), 20);
-        assert_eq!(table_window_start(29, 8, 10), 0);
+    fn table_scroll_keeps_bottom_selection_visible() {
+        let template = fixture_skills().remove(0);
+        let skills = (0..30)
+            .map(|index| {
+                let mut skill = template.clone();
+                skill.name = format!("skill-{index:02}");
+                skill
+            })
+            .collect::<Vec<_>>();
+        let mut app = App::from_skills(skills);
+        app.set_selected_for_test(29);
+
+        let snapshot = render_app_snapshot(app, 80, 24);
+
+        assert!(snapshot.contains("skill-29"));
+        assert!(!snapshot.contains("skill-00"));
     }
 
     #[test]

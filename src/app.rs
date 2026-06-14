@@ -760,6 +760,12 @@ impl App {
         self.selected
     }
 
+    #[cfg(test)]
+    pub(crate) fn set_selected_for_test(&mut self, selected: usize) {
+        self.selected = selected;
+        self.clamp_selection();
+    }
+
     pub(crate) fn selected_skill(&self) -> Option<&SkillRecord> {
         self.visible_skills()
             .get(self.selected)

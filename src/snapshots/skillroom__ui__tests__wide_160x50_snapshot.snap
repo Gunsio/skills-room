@@ -1,6 +1,6 @@
 ---
 source: src/ui.rs
-assertion_line: 1021
+assertion_line: 1055
 expression: "render_snapshot(160, 50)"
 ---
 ╭──────────────────────────────────────────────────────────────────────────────────────────────────────────────╮╭Filters───────────────────────────────────────╮
@@ -8,13 +8,13 @@ expression: "render_snapshot(160, 50)"
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────╯╰──────────────────────────────────────────────╯
 
 ╭Skills────────────────────────────────────────────────────────────────────────────────────────────────────────╮╭Details───────────────────────────────────────╮
-│↑ Name                           Source                      Scope     State       Risk      Update           ││◇ code-review                                 │
+│    ↑ Name                          Source                      Scope     State       Risk      Update        ││◇ code-review                                 │
 │                                                                                                              ││Review pull requests with repository-local    │
-│code-review                      curated                     Local     Update      Medium    1.9.2            ││conventions and test gates.                   │
-│data-analysis                    skills.bytedance.net        Global    Active      Low       current          ││                                              │
-│legacy-deploy                    local/archive               Local     Error       High      blocked          ││Version: 1.8.0                                │
-│taproom                          local/git                   Local     Ready       None      current          ││Source: curated                               │
-│web-scraper                      github                      Global    Ready       Low       current          ││Scope: Local                                  │
+│↻   code-review                     curated                     Local     Update      Medium    1.9.2         ││conventions and test gates.                   │
+│◆   data-analysis                   skills.bytedance.net        Global    Active      Low       current       ││                                              │
+│!   legacy-deploy                   local/archive               Local     Error       High      blocked       ││Version: 1.8.0                                │
+│◆   taproom                         local/git                   Local     Ready       None      current       ││Source: curated                               │
+│◆   web-scraper                     github                      Global    Ready       Low       current       ││Scope: Local                                  │
 │                                                                                                              ││Path: ~/.codex/skills/code-review             │
 │                                                                                                              ││                                              │
 │                                                                                                              ││State: Update                                 │

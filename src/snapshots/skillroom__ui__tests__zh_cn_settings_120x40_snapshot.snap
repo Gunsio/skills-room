@@ -1,6 +1,6 @@
 ---
 source: src/ui.rs
-assertion_line: 1061
+assertion_line: 1095
 expression: "render_app_snapshot(app, 120, 40)"
 ---
 ╭──────────────────────────────────────────────────────────────────────────────────╮╭Filters───────────────────────────╮
@@ -8,13 +8,13 @@ expression: "render_app_snapshot(app, 120, 40)"
 ╰──────────────────────────────────────────────────────────────────────────────────╯╰──────────────────────────────────╯
 
 ╭Skills──────────────────────────────────────────────────────────────────────────╮╭详 情 ────────────────────────────────╮
-│↑ 名 称               来 源                 范 围       状 态         风 险       更 新     ││◇ code-review                       │
+│    ↑ 名 称             来 源               范 围       状 态         风 险       更 新     ││◇ code-review                       │
 │                ╭设 置 ────────────────────────────────────────────────────────────────────────────────╮ with           │
-│code-review     │设 置   Esc 取 消                                                                       │ventions and    │
-│data-analysis   │配 置 : skillroom/config.toml                                                         │                │
-│legacy-deploy   │                                                                                    │                │
-│taproom         │> 主 题                             Tokyo Night  Enter 切 换 主 题                        │                │
-│web-scraper     │  语 言                             中 文   Enter 切 换 语 言                               │                │
+│↻   code-review │设 置   Esc 取 消                                                                       │ventions and    │
+│◆   data-analysi│配 置 : skillroom/config.toml                                                         │                │
+│!   legacy-deplo│                                                                                    │                │
+│◆   taproom     │> 主 题                             Tokyo Night  Enter 切 换 主 题                        │                │
+│◆   web-scraper │  语 言                             中 文   Enter 切 换 语 言                               │                │
 │                │  缓 存  TTL                        1800s  Enter 切 换  TTL                             │                │
 │                │  缓 存                             ready  Enter 清 理 缓 存 状 态                          │s/code-review   │
 │                │  安 全                             已 锁 定   不 能 关 闭 安 全 底 线                           │                │

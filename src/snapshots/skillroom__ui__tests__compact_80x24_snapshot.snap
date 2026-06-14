@@ -1,6 +1,6 @@
 ---
 source: src/ui.rs
-assertion_line: 1011
+assertion_line: 1045
 expression: "render_snapshot(80, 24)"
 ---
 ╭──────────────────────────────────────────────────────╮╭Filters───────────────╮
@@ -8,13 +8,13 @@ expression: "render_snapshot(80, 24)"
 ╰──────────────────────────────────────────────────────╯╰──────────────────────╯
 
 ╭Skills──────────────────────────────────────────╮╭Details─────────────────────╮
-│↑ Name        Source        Scope     State     ││◇ code-review               │
+│    ↑ Name      Source      Scope     State     ││◇ code-review               │
 │                                                ││Review pull requests with   │
-│code-review   curated       Local     Update    ││repository-local conventions│
-│data-analysi  skills.byted  Global    Active    ││and test gates.             │
-│legacy-deplo  local/archiv  Local     Error     ││                            │
-│taproom       local/git     Local     Ready     ││Version: 1.8.0              │
-│web-scraper   github        Global    Ready     ││Source: curated             │
+│↻   code-revie  curated     Local     Update    ││repository-local conventions│
+│◆   data-analy  skills.byt  Global    Active    ││and test gates.             │
+│!   legacy-dep  local/arch  Local     Error     ││                            │
+│◆   taproom     local/git   Local     Ready     ││Version: 1.8.0              │
+│◆   web-scrape  github      Global    Ready     ││Source: curated             │
 │                                                ││Scope: Local                │
 │                                                ││Path:                       │
 │                                                ││~/.codex/skills/code-review │
