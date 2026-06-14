@@ -41,6 +41,10 @@ pub fn render(app: &App, frame: &mut Frame<'_>) {
         render_help_overlay(app, frame, area, theme);
     }
 
+    if app.space_picker_open() {
+        render_space_picker(app, frame, area, theme);
+    }
+
     if app.settings_open() {
         render_settings(app, frame, area, theme);
     }
@@ -54,7 +58,7 @@ pub(crate) fn render_loading(frame: &mut Frame<'_>, phase: usize, visible_steps:
     let area = frame.area();
     let theme = crate::theme::ThemeRegistry::get(crate::config::ThemeName::TokyoNight);
     let popup = centered_rect(area, 84, 66);
-    let frames = ["/", "-", "\\", "|"];
+    let frames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
     let spinner = frames[phase % frames.len()];
     let steps = [
         ("1 ", "scan configured skill roots"),
@@ -671,14 +675,14 @@ fn output_window_start(total: usize, capacity: usize) -> usize {
     total.saturating_sub(capacity)
 }
 
-fn render_help(
-    _app: &App,
-    frame: &mut Frame<'_>,
-    area: ratatui::layout::Rect,
-    theme: ThemePalette,
-) {
+fn render_help(app: &App, frame: &mut Frame<'_>, area: ratatui::layout::Rect, theme: ThemePalette) {
     let key_style = theme.title();
     let text_style = theme.muted();
+    let h_hint = if app.focus() == FocusArea::Details {
+        "back"
+    } else {
+        "open path"
+    };
     let lines = if area.width < 100 {
         vec![
             help_line(
@@ -717,10 +721,10 @@ fn render_help(
             help_line(
                 "Commands  : ",
                 [
-                    ("h", "open"),
+                    ("enter/l", "details"),
+                    ("s", "spaces"),
+                    ("h", h_hint),
                     ("t", "install"),
-                    ("u", "update"),
-                    ("x", "remove"),
                 ],
                 key_style,
                 text_style,
@@ -736,8 +740,8 @@ fn render_help(
                     ("tab", "switch focus"),
                     ("/", "search"),
                     ("esc", "clear search"),
-                    ("enter", "select"),
-                    ("s/S", "sort"),
+                    ("enter/l", "details"),
+                    ("s", "spaces"),
                 ],
                 key_style,
                 text_style,
@@ -770,7 +774,8 @@ fn render_help(
             help_line(
                 "Commands  : ",
                 [
-                    ("h", "open path"),
+                    ("h", h_hint),
+                    ("S", "sort"),
                     ("t", "install"),
                     ("u", "update"),
                     ("U", "update all"),
@@ -892,6 +897,54 @@ fn render_action_confirmation(
         Paragraph::new(lines)
             .style(theme.value())
             .block(focused_block(app.text(I18nKey::PanelConfirm), true, theme))
+            .wrap(Wrap { trim: false }),
+        popup,
+    );
+}
+
+fn render_space_picker(
+    app: &App,
+    frame: &mut Frame<'_>,
+    area: ratatui::layout::Rect,
+    theme: ThemePalette,
+) {
+    let popup = centered_rect(area, 64, 54);
+    let mut lines = vec![
+        Line::from(vec![
+            Span::styled("Spaces", theme.title()),
+            Span::raw("  "),
+            Span::styled("Enter/l selects  h/Esc closes", theme.muted()),
+        ]),
+        Line::from(""),
+    ];
+
+    for (index, row) in app.space_picker_rows().into_iter().enumerate() {
+        let cursor = if index == app.space_picker_selected() {
+            "> "
+        } else {
+            "  "
+        };
+        let active = if row.active { "◆ " } else { "◇ " };
+        let line = Line::from(vec![
+            Span::raw(cursor),
+            Span::styled(active, theme.title()),
+            Span::styled(format!("{:<24}", row.label), theme.label()),
+            Span::styled(format!("{:<16}", row.value), theme.value()),
+            Span::raw("  "),
+            Span::styled(row.scope, theme.muted()),
+        ]);
+        if index == app.space_picker_selected() {
+            lines.push(line.style(theme.selected()));
+        } else {
+            lines.push(line);
+        }
+    }
+
+    frame.render_widget(ratatui::widgets::Clear, popup);
+    frame.render_widget(
+        Paragraph::new(lines)
+            .style(theme.value())
+            .block(focused_block("Spaces", true, theme))
             .wrap(Wrap { trim: false }),
         popup,
     );
@@ -1184,7 +1237,7 @@ mod tests {
         let snapshot = render_loading_snapshot(120, 40, 0, 3);
 
         assert!(snapshot.contains("Loading"));
-        assert!(snapshot.contains("/"));
+        assert!(snapshot.contains("⠋"));
         assert!(snapshot.contains("Loading local skills"));
         assert!(snapshot.contains("build dashboard; wait for selection"));
     }

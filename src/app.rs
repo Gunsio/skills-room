@@ -40,6 +40,7 @@ pub struct App {
     config: AppConfig,
     i18n: I18nCatalog,
     settings: SettingsState,
+    space_picker: SpacePickerState,
     remote_sources_enabled: bool,
 }
 
@@ -229,6 +230,7 @@ impl App {
             config,
             i18n,
             settings,
+            space_picker: SpacePickerState::closed(),
             remote_sources_enabled: false,
         }
     }
@@ -277,6 +279,11 @@ impl App {
             return;
         }
 
+        if self.space_picker.open {
+            self.handle_space_picker_key(key);
+            return;
+        }
+
         if self.settings.open {
             self.handle_settings_key(key);
             return;
@@ -311,21 +318,22 @@ impl App {
             (KeyCode::Char('u'), _) => self.open_action(ActionKind::UpdateSelected),
             (KeyCode::Char('U'), _) => self.open_action(ActionKind::UpdateAll),
             (KeyCode::Char('x'), _) => self.open_action(ActionKind::Remove),
+            (KeyCode::Char('h'), _) if self.focus == FocusArea::Details => {
+                self.focus = FocusArea::Table;
+                self.push_output("[detail] Returned to skills list.");
+            }
             (KeyCode::Char('h'), _) => self.open_action(ActionKind::OpenPath),
             (KeyCode::Char('y'), _) => self.open_action(ActionKind::CopyPath),
-            (KeyCode::Enter, _) => self.select_current_skill(),
+            (KeyCode::Enter | KeyCode::Char('l'), _) => self.select_current_skill(),
             (KeyCode::Tab, KeyModifiers::SHIFT) => {
                 self.focus = self.focus.previous();
             }
             (KeyCode::Tab, _) => {
                 self.focus = self.focus.next();
             }
-            (KeyCode::Char('s'), _) => {
-                self.sort_column = self.sort_column.next();
-                self.clamp_selection();
-            }
+            (KeyCode::Char('s'), _) => self.open_space_picker(),
             (KeyCode::Char('S'), _) => {
-                self.sort_ascending = !self.sort_ascending;
+                self.sort_column = self.sort_column.next();
                 self.clamp_selection();
             }
             (KeyCode::Up | KeyCode::Char('k'), _) => self.select_previous(),
@@ -373,6 +381,22 @@ impl App {
             KeyCode::Enter => self.activate_setting(),
             KeyCode::Up | KeyCode::Char('k') => self.select_previous_setting(),
             KeyCode::Down | KeyCode::Char('j') => self.select_next_setting(),
+            _ => {}
+        }
+    }
+
+    fn handle_space_picker_key(&mut self, key: KeyEvent) {
+        match key.code {
+            KeyCode::Esc | KeyCode::Char('h') | KeyCode::Char('q') => {
+                self.close_space_picker(false);
+            }
+            KeyCode::Enter | KeyCode::Char('l') => self.apply_selected_space(),
+            KeyCode::Up | KeyCode::Char('k') => self.select_previous_space(),
+            KeyCode::Down | KeyCode::Char('j') => self.select_next_space(),
+            KeyCode::Char('g') => self.space_picker.selected = 0,
+            KeyCode::Char('G') => {
+                self.space_picker.selected = self.space_picker_rows().len().saturating_sub(1);
+            }
             _ => {}
         }
     }
@@ -503,6 +527,65 @@ impl App {
         let source = skill.source.label().to_string();
         self.focus = FocusArea::Details;
         self.push_output(&format!("[select] {name} selected; source={source}."));
+    }
+
+    fn open_space_picker(&mut self) {
+        if self.config.spaces.is_empty() && self.remote_sources_enabled {
+            self.discover_remote_spaces();
+        }
+        self.space_picker = SpacePickerState::open(active_space_index(&self.config));
+        self.focus = FocusArea::Settings;
+        self.push_output("[space] Opened Space list.");
+    }
+
+    fn close_space_picker(&mut self, saved: bool) {
+        self.space_picker.open = false;
+        self.focus = FocusArea::Table;
+        if saved {
+            self.push_output("[space] Applied Space selection.");
+        } else {
+            self.push_output("[space] Closed Space list.");
+        }
+    }
+
+    fn select_previous_space(&mut self) {
+        self.space_picker.selected = self.space_picker.selected.saturating_sub(1);
+    }
+
+    fn select_next_space(&mut self) {
+        let last = self.space_picker_rows().len().saturating_sub(1);
+        self.space_picker.selected = self.space_picker.selected.saturating_add(1).min(last);
+    }
+
+    fn apply_selected_space(&mut self) {
+        let selected = self.space_picker.selected;
+        let mut draft = self.config.clone();
+        if selected == 0 {
+            draft.active_space = None;
+        } else if let Some(space) = draft.spaces.get(selected - 1) {
+            draft.active_space = Some(space.id.clone());
+        } else {
+            self.push_output("[space] No selectable Space at cursor.");
+            return;
+        }
+
+        let (config, warnings) = draft.normalized();
+        match crate::config::save(&self.config_path, &config) {
+            Ok(()) => {
+                self.config = config;
+                for warning in warnings {
+                    self.push_output(&format!("[config] {warning}"));
+                }
+                self.close_space_picker(true);
+                if self.remote_sources_enabled {
+                    self.prune_remote_source_records();
+                    self.load_remote_space_into_table();
+                }
+            }
+            Err(error) => {
+                self.push_output(&format!("[space] Failed to save Space selection: {error}"));
+            }
+        }
     }
 
     fn clear_filters(&mut self) {
@@ -959,12 +1042,44 @@ impl App {
         self.settings.open
     }
 
+    pub(crate) fn space_picker_open(&self) -> bool {
+        self.space_picker.open
+    }
+
     pub(crate) fn pending_action(&self) -> Option<&ActionConfirmation> {
         self.pending_action.as_ref()
     }
 
     pub(crate) fn settings_selected(&self) -> usize {
         self.settings.selected
+    }
+
+    pub(crate) fn space_picker_selected(&self) -> usize {
+        self.space_picker.selected
+    }
+
+    pub(crate) fn space_picker_rows(&self) -> Vec<SpacePickerRow> {
+        let mut rows = vec![SpacePickerRow {
+            label: "Local only".to_string(),
+            value: "no remote Space".to_string(),
+            scope: "local inventory".to_string(),
+            active: self.config.active_space.is_none(),
+        }];
+
+        rows.extend(
+            self.config
+                .spaces
+                .iter()
+                .filter(|space| space.enabled)
+                .map(|space| SpacePickerRow {
+                    label: space.label.clone(),
+                    value: format!("{} skills", space.package_count),
+                    scope: space.scope.clone(),
+                    active: self.config.active_space.as_deref() == Some(space.id.as_str()),
+                }),
+        );
+
+        rows
     }
 
     fn settings_actions(&self) -> Vec<SettingsAction> {
@@ -1369,6 +1484,20 @@ fn active_space(config: &AppConfig) -> Option<&SpaceSettings> {
         .find(|space| space.enabled && &space.id == active)
 }
 
+fn active_space_index(config: &AppConfig) -> usize {
+    let Some(active) = config.active_space.as_ref() else {
+        return 0;
+    };
+
+    config
+        .spaces
+        .iter()
+        .filter(|space| space.enabled)
+        .position(|space| &space.id == active)
+        .map(|index| index + 1)
+        .unwrap_or(0)
+}
+
 #[derive(Debug)]
 enum RemoteSpaceLoadError {
     NoActiveSpace,
@@ -1524,10 +1653,24 @@ impl SettingsRow {
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
+pub(crate) struct SpacePickerRow {
+    pub label: String,
+    pub value: String,
+    pub scope: String,
+    pub active: bool,
+}
+
+#[derive(Debug, Clone, Eq, PartialEq)]
 struct SettingsState {
     open: bool,
     selected: usize,
     draft: AppConfig,
+}
+
+#[derive(Debug, Clone, Eq, PartialEq)]
+struct SpacePickerState {
+    open: bool,
+    selected: usize,
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
@@ -1573,6 +1716,22 @@ impl SettingsState {
             open: true,
             selected: 0,
             draft: config,
+        }
+    }
+}
+
+impl SpacePickerState {
+    fn closed() -> Self {
+        Self {
+            open: false,
+            selected: 0,
+        }
+    }
+
+    fn open(selected: usize) -> Self {
+        Self {
+            open: true,
+            selected,
         }
     }
 }
@@ -1710,20 +1869,21 @@ mod tests {
         let mut app = App::default();
 
         assert_eq!(app.sort_column(), SortColumn::Name);
-        app.handle_key(KeyEvent::from(KeyCode::Char('s')));
+        app.handle_key(KeyEvent::from(KeyCode::Char('S')));
         assert_eq!(app.sort_column(), SortColumn::Source);
-        app.handle_key(KeyEvent::from(KeyCode::Char('s')));
+        app.handle_key(KeyEvent::from(KeyCode::Char('S')));
         assert_eq!(app.sort_column(), SortColumn::Scope);
-        app.handle_key(KeyEvent::from(KeyCode::Char('s')));
+        app.handle_key(KeyEvent::from(KeyCode::Char('S')));
         assert_eq!(app.sort_column(), SortColumn::State);
-        app.handle_key(KeyEvent::from(KeyCode::Char('s')));
+        app.handle_key(KeyEvent::from(KeyCode::Char('S')));
         assert_eq!(app.sort_column(), SortColumn::Risk);
-        app.handle_key(KeyEvent::from(KeyCode::Char('s')));
+        app.handle_key(KeyEvent::from(KeyCode::Char('S')));
         assert_eq!(app.sort_column(), SortColumn::Update);
 
         assert!(app.sort_ascending());
-        app.handle_key(KeyEvent::from(KeyCode::Char('S')));
-        assert!(!app.sort_ascending());
+        app.handle_key(KeyEvent::from(KeyCode::Char('s')));
+        assert!(app.space_picker_open());
+        assert_eq!(app.sort_column(), SortColumn::Update);
     }
 
     #[test]
@@ -1832,6 +1992,43 @@ mod tests {
                 .iter()
                 .any(|line| line.contains("[select]") && line.contains(&selected))
         );
+
+        app.handle_key(KeyEvent::from(KeyCode::Char('h')));
+        assert_eq!(app.focus(), FocusArea::Table);
+
+        app.handle_key(KeyEvent::from(KeyCode::Char('l')));
+        assert_eq!(app.focus(), FocusArea::Details);
+    }
+
+    #[test]
+    fn space_key_opens_picker_and_enter_applies_selected_space() {
+        let temp = tempdir().unwrap();
+        let path = temp.path().join("config.toml");
+        let mut app = App::from_skills_with_config(
+            fixture_skills(),
+            LoadedConfig {
+                path: path.clone(),
+                config: AppConfig {
+                    spaces: vec![SpaceSettings::qianchuan_fe()],
+                    ..AppConfig::default()
+                },
+                warnings: Vec::new(),
+            },
+        );
+
+        app.handle_key(KeyEvent::from(KeyCode::Char('s')));
+        assert!(app.space_picker_open());
+        assert_eq!(app.space_picker_selected(), 0);
+        assert_eq!(app.space_picker_rows().len(), 2);
+
+        app.handle_key(KeyEvent::from(KeyCode::Char('j')));
+        assert_eq!(app.space_picker_selected(), 1);
+        app.handle_key(KeyEvent::from(KeyCode::Enter));
+
+        assert!(!app.space_picker_open());
+        assert_eq!(app.active_space_label(), Some("qianchuan/fe"));
+        let loaded = load_or_default(path);
+        assert_eq!(loaded.config.active_space.as_deref(), Some("qianchuan-fe"));
     }
 
     #[test]

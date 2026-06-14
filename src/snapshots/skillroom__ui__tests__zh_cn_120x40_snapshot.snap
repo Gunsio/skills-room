@@ -37,7 +37,7 @@ expression: "render_app_snapshot(app, 120, 40)"
 ╰────────────────────────────────────────────────────────────────────────────────╯╰────────────────────────────────────╯
 5 visible skills | 5 total | 3 local | 1 updates | 1 high risk
 Space none | Remote scope local only | Filter none | Source 全 部  | Skill scope 全 部 范 围
-General   : q: quit R: refresh tab: switch focus /: search esc: clear search enter: select s/S: sort
+General   : q: quit R: refresh tab: switch focus /: search esc: clear search enter/l: details s: spaces
 Navigation: j/↓: cursor down k/↑: cursor up PageUp: prev page PageDown: next page g: go to top G: go to bottom
 Filter    : a: all f: source i: local o: updates v: active
-Commands  : h: open path t: install u: update U: update all x: remove y: copy path ,: settings
+Commands  : h: open path S: sort t: install u: update U: update all x: remove y: copy path ,: settings

@@ -24,4 +24,4 @@ Space none | Filter none | Source all
 General   : q: quit R: refresh /: search ?: help
 Navigation: j/↓: down k/↑: up PgUp: prev PgDn: next
 Filter    : a: all f: source i: local o: updates
-Commands  : h: open t: install u: update x: remove
+Commands  : enter/l: details s: spaces h: open path t: install
