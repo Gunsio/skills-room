@@ -23,6 +23,8 @@ pub struct App {
     should_quit: bool,
     skills: Vec<SkillRecord>,
     selected: usize,
+    space_selected: usize,
+    list_mode: ListMode,
     focus: FocusArea,
     input_mode: InputMode,
     search_query: String,
@@ -40,8 +42,13 @@ pub struct App {
     config: AppConfig,
     i18n: I18nCatalog,
     settings: SettingsState,
-    space_picker: SpacePickerState,
     remote_sources_enabled: bool,
+}
+
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub enum ListMode {
+    Skills,
+    Spaces,
 }
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
@@ -214,6 +221,8 @@ impl App {
             should_quit: false,
             skills,
             selected: 0,
+            space_selected: 0,
+            list_mode: ListMode::Skills,
             focus: FocusArea::Table,
             input_mode: InputMode::Normal,
             search_query: String::new(),
@@ -231,7 +240,6 @@ impl App {
             config,
             i18n,
             settings,
-            space_picker: SpacePickerState::closed(),
             remote_sources_enabled: false,
         }
     }
@@ -280,11 +288,6 @@ impl App {
             return;
         }
 
-        if self.space_picker.open {
-            self.handle_space_picker_key(key);
-            return;
-        }
-
         if self.settings.open {
             self.handle_settings_key(key);
             return;
@@ -297,6 +300,11 @@ impl App {
 
         if self.input_mode == InputMode::Search {
             self.handle_search_key(key);
+            return;
+        }
+
+        if self.list_mode == ListMode::Spaces {
+            self.handle_space_list_key(key);
             return;
         }
 
@@ -332,7 +340,7 @@ impl App {
             (KeyCode::Tab, _) => {
                 self.focus = self.focus.next();
             }
-            (KeyCode::Char('s'), _) => self.open_space_picker(),
+            (KeyCode::Char('s'), _) => self.open_space_list(),
             (KeyCode::Char('S'), _) => {
                 self.sort_column = self.sort_column.next();
                 self.clamp_selection();
@@ -386,18 +394,23 @@ impl App {
         }
     }
 
-    fn handle_space_picker_key(&mut self, key: KeyEvent) {
-        match key.code {
-            KeyCode::Esc | KeyCode::Char('h') | KeyCode::Char('q') => {
-                self.close_space_picker(false);
+    fn handle_space_list_key(&mut self, key: KeyEvent) {
+        match (key.code, key.modifiers) {
+            (KeyCode::Char('q'), _) => self.should_quit = true,
+            (KeyCode::Char('?'), _) => self.show_help = !self.show_help,
+            (KeyCode::Char(','), _) => self.open_settings(),
+            (KeyCode::Char('/'), _) => self.enter_search_mode(),
+            (KeyCode::Esc | KeyCode::Char('h') | KeyCode::Char('s'), _) => {
+                self.close_space_list(false);
             }
-            KeyCode::Enter | KeyCode::Char('l') => self.apply_selected_space(),
-            KeyCode::Up | KeyCode::Char('k') => self.select_previous_space(),
-            KeyCode::Down | KeyCode::Char('j') => self.select_next_space(),
-            KeyCode::Char('g') => self.space_picker.selected = 0,
-            KeyCode::Char('G') => {
-                self.space_picker.selected = self.space_picker_rows().len().saturating_sub(1);
-            }
+            (KeyCode::Char('R'), _) => self.refresh_space_list(),
+            (KeyCode::Enter | KeyCode::Char('l'), _) => self.apply_selected_space(),
+            (KeyCode::Up | KeyCode::Char('k'), _) => self.select_previous(),
+            (KeyCode::Down | KeyCode::Char('j'), _) => self.select_next(),
+            (KeyCode::PageUp, _) => self.select_page_up(),
+            (KeyCode::PageDown, _) => self.select_page_down(),
+            (KeyCode::Char('g'), _) => self.select_first(),
+            (KeyCode::Char('G'), _) => self.select_last(),
             _ => {}
         }
     }
@@ -414,6 +427,13 @@ impl App {
                 }
             }
             KeyCode::Enter => {
+                if self.list_mode == ListMode::Spaces {
+                    let query = self.search_query.trim().to_string();
+                    if self.remote_sources_enabled && !query.is_empty() {
+                        self.discover_remote_spaces_for_query(&query);
+                    }
+                    self.clamp_selection();
+                }
                 self.input_mode = InputMode::Normal;
                 self.focus = FocusArea::Table;
             }
@@ -457,7 +477,8 @@ impl App {
     }
 
     pub(crate) fn discover_remote_spaces(&mut self) {
-        match fetch_available_spaces(&self.config, CurlHttpClient::default()) {
+        let client = CurlHttpClient::default();
+        match fetch_available_spaces(&self.config, &client) {
             Ok(spaces) => {
                 let total = spaces.len();
                 let added = merge_spaces(&mut self.config.spaces, spaces);
@@ -471,6 +492,28 @@ impl App {
             Err(RemoteSpaceLoadError::SearchFailed { space_label, error }) => {
                 self.push_output(&format!(
                     "[space] Space list {space_label} unavailable: {error}."
+                ));
+            }
+            Err(RemoteSpaceLoadError::NoActiveSpace) => {}
+        }
+    }
+
+    fn discover_remote_spaces_for_query(&mut self, query: &str) {
+        let client = CurlHttpClient::default();
+        match fetch_available_spaces_for_query(&self.config, &client, query) {
+            Ok(spaces) => {
+                let total = spaces.len();
+                let added = merge_spaces(&mut self.config.spaces, spaces);
+                self.push_output(&format!(
+                    "[space] Search '{query}' returned {total} selectable Spaces; {added} added."
+                ));
+            }
+            Err(RemoteSpaceLoadError::NoEnabledSource) => {
+                self.push_output("[space] No enabled AgentBuddy source configured.");
+            }
+            Err(RemoteSpaceLoadError::SearchFailed { space_label, error }) => {
+                self.push_output(&format!(
+                    "[space] Space search {space_label} unavailable: {error}."
                 ));
             }
             Err(RemoteSpaceLoadError::NoActiveSpace) => {}
@@ -530,45 +573,52 @@ impl App {
         self.push_output(&format!("[select] {name} selected; source={source}."));
     }
 
-    fn open_space_picker(&mut self) {
-        if self.config.spaces.is_empty() && self.remote_sources_enabled {
+    fn open_space_list(&mut self) {
+        if self.remote_sources_enabled {
             self.discover_remote_spaces();
         }
-        self.space_picker = SpacePickerState::open(active_space_index(&self.config));
-        self.focus = FocusArea::Settings;
-        self.push_output("[space] Opened Space list.");
+        self.list_mode = ListMode::Spaces;
+        self.space_selected = active_space_index(&self.config);
+        self.search_query.clear();
+        self.input_mode = InputMode::Normal;
+        self.focus = FocusArea::Table;
+        self.clamp_selection();
+        self.push_output("[space] Showing Space list.");
     }
 
-    fn close_space_picker(&mut self, saved: bool) {
-        self.space_picker.open = false;
+    fn close_space_list(&mut self, saved: bool) {
+        self.list_mode = ListMode::Skills;
+        self.search_query.clear();
+        self.input_mode = InputMode::Normal;
         self.focus = FocusArea::Table;
+        self.clamp_selection();
         if saved {
             self.push_output("[space] Applied Space selection.");
         } else {
-            self.push_output("[space] Closed Space list.");
+            self.push_output("[space] Returned to skills list.");
         }
     }
 
-    fn select_previous_space(&mut self) {
-        self.space_picker.selected = self.space_picker.selected.saturating_sub(1);
-    }
-
-    fn select_next_space(&mut self) {
-        let last = self.space_picker_rows().len().saturating_sub(1);
-        self.space_picker.selected = self.space_picker.selected.saturating_add(1).min(last);
+    fn refresh_space_list(&mut self) {
+        if self.remote_sources_enabled {
+            self.discover_remote_spaces();
+        } else {
+            self.push_output("[space] Remote sources are disabled.");
+        }
+        self.clamp_selection();
     }
 
     fn apply_selected_space(&mut self) {
-        let selected = self.space_picker.selected;
-        let mut draft = self.config.clone();
-        if selected == 0 {
-            draft.active_space = None;
-        } else if let Some(space) = draft.spaces.get(selected - 1) {
-            draft.active_space = Some(space.id.clone());
-        } else {
-            self.push_output("[space] No selectable Space at cursor.");
+        let Some(row) = self.selected_space_row() else {
+            self.push_output("[space] No Space selected.");
+            return;
+        };
+        if row.id.is_some() && !row.enabled {
+            self.push_output("[space] Selected Space is unavailable.");
             return;
         }
+        let mut draft = self.config.clone();
+        draft.active_space = row.id.clone();
 
         let (config, warnings) = draft.normalized();
         match crate::config::save(&self.config_path, &config) {
@@ -580,7 +630,7 @@ impl App {
                 for warning in warnings {
                     self.push_output(&format!("[config] {warning}"));
                 }
-                self.close_space_picker(true);
+                self.close_space_list(true);
                 if self.remote_sources_enabled {
                     self.prune_remote_source_records();
                     self.load_remote_space_into_table();
@@ -903,29 +953,62 @@ impl App {
     }
 
     fn select_previous(&mut self) {
-        self.selected = self.selected.saturating_sub(1);
+        match self.list_mode {
+            ListMode::Skills => self.selected = self.selected.saturating_sub(1),
+            ListMode::Spaces => self.space_selected = self.space_selected.saturating_sub(1),
+        }
     }
 
     fn select_next(&mut self) {
-        let last = self.visible_skill_count().saturating_sub(1);
-        self.selected = self.selected.saturating_add(1).min(last);
+        match self.list_mode {
+            ListMode::Skills => {
+                let last = self.visible_skill_count().saturating_sub(1);
+                self.selected = self.selected.saturating_add(1).min(last);
+            }
+            ListMode::Spaces => {
+                let last = self.visible_space_count().saturating_sub(1);
+                self.space_selected = self.space_selected.saturating_add(1).min(last);
+            }
+        }
     }
 
     fn select_page_up(&mut self) {
-        self.selected = self.selected.saturating_sub(Self::PAGE_SIZE);
+        match self.list_mode {
+            ListMode::Skills => self.selected = self.selected.saturating_sub(Self::PAGE_SIZE),
+            ListMode::Spaces => {
+                self.space_selected = self.space_selected.saturating_sub(Self::PAGE_SIZE)
+            }
+        }
     }
 
     fn select_page_down(&mut self) {
-        let last = self.visible_skill_count().saturating_sub(1);
-        self.selected = self.selected.saturating_add(Self::PAGE_SIZE).min(last);
+        match self.list_mode {
+            ListMode::Skills => {
+                let last = self.visible_skill_count().saturating_sub(1);
+                self.selected = self.selected.saturating_add(Self::PAGE_SIZE).min(last);
+            }
+            ListMode::Spaces => {
+                let last = self.visible_space_count().saturating_sub(1);
+                self.space_selected = self
+                    .space_selected
+                    .saturating_add(Self::PAGE_SIZE)
+                    .min(last);
+            }
+        }
     }
 
     fn select_first(&mut self) {
-        self.selected = 0;
+        match self.list_mode {
+            ListMode::Skills => self.selected = 0,
+            ListMode::Spaces => self.space_selected = 0,
+        }
     }
 
     fn select_last(&mut self) {
-        self.selected = self.visible_skill_count().saturating_sub(1);
+        match self.list_mode {
+            ListMode::Skills => self.selected = self.visible_skill_count().saturating_sub(1),
+            ListMode::Spaces => self.space_selected = self.visible_space_count().saturating_sub(1),
+        }
     }
 
     fn select_previous_setting(&mut self) {
@@ -941,10 +1024,17 @@ impl App {
         self.selected = self
             .selected
             .min(self.visible_skill_count().saturating_sub(1));
+        self.space_selected = self
+            .space_selected
+            .min(self.visible_space_count().saturating_sub(1));
     }
 
     fn visible_skill_count(&self) -> usize {
         self.visible_skills().len()
+    }
+
+    fn visible_space_count(&self) -> usize {
+        self.visible_spaces().len()
     }
 
     const PAGE_SIZE: usize = 5;
@@ -953,8 +1043,16 @@ impl App {
         &self.skills
     }
 
+    pub(crate) fn space_count(&self) -> usize {
+        self.config.spaces.len()
+    }
+
     pub(crate) fn selected_index(&self) -> usize {
         self.selected
+    }
+
+    pub(crate) fn space_selected_index(&self) -> usize {
+        self.space_selected
     }
 
     #[cfg(test)]
@@ -967,6 +1065,14 @@ impl App {
         self.visible_skills()
             .get(self.selected)
             .map(|(_, skill)| *skill)
+    }
+
+    pub(crate) fn selected_space_row(&self) -> Option<SpaceListRow> {
+        self.visible_spaces().get(self.space_selected).cloned()
+    }
+
+    pub(crate) fn list_mode(&self) -> ListMode {
+        self.list_mode
     }
 
     pub(crate) fn focus(&self) -> FocusArea {
@@ -1042,10 +1148,6 @@ impl App {
         self.settings.open
     }
 
-    pub(crate) fn space_picker_open(&self) -> bool {
-        self.space_picker.open
-    }
-
     pub(crate) fn pending_action(&self) -> Option<&ActionConfirmation> {
         self.pending_action.as_ref()
     }
@@ -1054,32 +1156,34 @@ impl App {
         self.settings.selected
     }
 
-    pub(crate) fn space_picker_selected(&self) -> usize {
-        self.space_picker.selected
-    }
-
-    pub(crate) fn space_picker_rows(&self) -> Vec<SpacePickerRow> {
-        let mut rows = vec![SpacePickerRow {
+    pub(crate) fn visible_spaces(&self) -> Vec<SpaceListRow> {
+        let mut rows = vec![SpaceListRow {
+            id: None,
             label: "Local only".to_string(),
-            value: "no remote Space".to_string(),
             scope: "local inventory".to_string(),
+            url: String::new(),
+            package_count: self
+                .skills
+                .iter()
+                .filter(|skill| is_local_source(&skill.source))
+                .count(),
+            enabled: true,
             active: self.config.active_space.is_none(),
         }];
 
-        rows.extend(
-            self.config
-                .spaces
-                .iter()
-                .filter(|space| space.enabled)
-                .map(|space| SpacePickerRow {
-                    label: space.label.clone(),
-                    value: format!("{} skills", space.package_count),
-                    scope: space.scope.clone(),
-                    active: self.config.active_space.as_deref() == Some(space.id.as_str()),
-                }),
-        );
+        rows.extend(self.config.spaces.iter().map(|space| SpaceListRow {
+            id: Some(space.id.clone()),
+            label: space.label.clone(),
+            scope: space.scope.clone(),
+            url: space.url.clone(),
+            package_count: space.package_count,
+            enabled: space.enabled,
+            active: self.config.active_space.as_deref() == Some(space.id.as_str()),
+        }));
 
-        rows
+        rows.into_iter()
+            .filter(|row| self.matches_space_query(row))
+            .collect()
     }
 
     fn settings_actions(&self) -> Vec<SettingsAction> {
@@ -1250,6 +1354,13 @@ impl App {
                 .as_ref()
                 .is_none_or(|update| skill.update_label() == update)
             && (!self.filters.local_only || is_local_source(&skill.source))
+    }
+
+    fn matches_space_query(&self, space: &SpaceListRow) -> bool {
+        self.search_query.is_empty()
+            || contains_case_insensitive(&space.label, &self.search_query)
+            || contains_case_insensitive(&space.scope, &self.search_query)
+            || contains_case_insensitive(&space.url, &self.search_query)
     }
 
     fn matches_active_space(&self, skill: &SkillRecord) -> bool {
@@ -1565,7 +1676,26 @@ fn fetch_active_space_records<C: HttpClient>(
 
 fn fetch_available_spaces<C: HttpClient>(
     config: &AppConfig,
-    client: C,
+    client: &C,
+) -> Result<Vec<SpaceSettings>, RemoteSpaceLoadError> {
+    let mut spaces = fetch_available_spaces_for_query(config, client, "")?;
+    let configured_query = config.space_search_query.trim();
+    if !configured_query.is_empty() {
+        match fetch_available_spaces_for_query(config, client, configured_query) {
+            Ok(extra_spaces) => {
+                merge_spaces(&mut spaces, extra_spaces);
+            }
+            Err(error) if spaces.is_empty() => return Err(error),
+            Err(_) => {}
+        }
+    }
+    Ok(spaces)
+}
+
+fn fetch_available_spaces_for_query<C: HttpClient>(
+    config: &AppConfig,
+    client: &C,
+    query: &str,
 ) -> Result<Vec<SpaceSettings>, RemoteSpaceLoadError> {
     let Some(source) = active_agentbuddy_source(config) else {
         return Err(RemoteSpaceLoadError::NoEnabledSource);
@@ -1573,7 +1703,7 @@ fn fetch_available_spaces<C: HttpClient>(
 
     let adapter = AgentBuddyMarketplaceAdapter::new(agentbuddy_config(source), client);
     adapter
-        .search_spaces(&config.space_search_query)
+        .search_spaces(query)
         .map(|spaces| {
             spaces
                 .into_iter()
@@ -1582,7 +1712,11 @@ fn fetch_available_spaces<C: HttpClient>(
                 .collect()
         })
         .map_err(|error| RemoteSpaceLoadError::SearchFailed {
-            space_label: config.space_search_query.clone(),
+            space_label: if query.trim().is_empty() {
+                "all".to_string()
+            } else {
+                query.to_string()
+            },
             error,
         })
 }
@@ -1707,10 +1841,13 @@ impl SettingsRow {
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
-pub(crate) struct SpacePickerRow {
+pub(crate) struct SpaceListRow {
+    pub id: Option<String>,
     pub label: String,
-    pub value: String,
     pub scope: String,
+    pub url: String,
+    pub package_count: usize,
+    pub enabled: bool,
     pub active: bool,
 }
 
@@ -1719,12 +1856,6 @@ struct SettingsState {
     open: bool,
     selected: usize,
     draft: AppConfig,
-}
-
-#[derive(Debug, Clone, Eq, PartialEq)]
-struct SpacePickerState {
-    open: bool,
-    selected: usize,
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
@@ -1770,22 +1901,6 @@ impl SettingsState {
             open: true,
             selected: 0,
             draft: config,
-        }
-    }
-}
-
-impl SpacePickerState {
-    fn closed() -> Self {
-        Self {
-            open: false,
-            selected: 0,
-        }
-    }
-
-    fn open(selected: usize) -> Self {
-        Self {
-            open: true,
-            selected,
         }
     }
 }
@@ -1936,7 +2051,7 @@ mod tests {
 
         assert!(app.sort_ascending());
         app.handle_key(KeyEvent::from(KeyCode::Char('s')));
-        assert!(app.space_picker_open());
+        assert_eq!(app.list_mode(), ListMode::Spaces);
         assert_eq!(app.sort_column(), SortColumn::Update);
     }
 
@@ -2055,7 +2170,7 @@ mod tests {
     }
 
     #[test]
-    fn space_key_opens_picker_and_enter_applies_selected_space() {
+    fn space_key_switches_main_list_and_enter_applies_selected_space() {
         let temp = tempdir().unwrap();
         let path = temp.path().join("config.toml");
         let mut app = App::from_skills_with_config(
@@ -2071,15 +2186,15 @@ mod tests {
         );
 
         app.handle_key(KeyEvent::from(KeyCode::Char('s')));
-        assert!(app.space_picker_open());
-        assert_eq!(app.space_picker_selected(), 0);
-        assert_eq!(app.space_picker_rows().len(), 2);
+        assert_eq!(app.list_mode(), ListMode::Spaces);
+        assert_eq!(app.space_selected_index(), 0);
+        assert_eq!(app.visible_spaces().len(), 2);
 
         app.handle_key(KeyEvent::from(KeyCode::Char('j')));
-        assert_eq!(app.space_picker_selected(), 1);
+        assert_eq!(app.space_selected_index(), 1);
         app.handle_key(KeyEvent::from(KeyCode::Enter));
 
-        assert!(!app.space_picker_open());
+        assert_eq!(app.list_mode(), ListMode::Skills);
         assert_eq!(app.active_space_label(), Some("qianchuan/fe"));
         let loaded = load_or_default(path);
         assert_eq!(loaded.config.active_space.as_deref(), Some("qianchuan-fe"));
@@ -2426,7 +2541,7 @@ mod tests {
         assert_eq!(spaces[0].package_count, 15);
         assert_eq!(
             client.urls()[0],
-            "https://artifact-api.byted.org/api/v1/group/search/skills?q=qianchuan&page=1&page_size=30"
+            "https://artifact-api.byted.org/api/v1/group/search/skills?q=&page=1&page_size=100"
         );
     }
 

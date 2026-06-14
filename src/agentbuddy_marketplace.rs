@@ -207,7 +207,7 @@ impl<C> AgentBuddyMarketplaceAdapter<C> {
 
     fn space_search_url(&self, term: &str) -> String {
         format!(
-            "{}{}?q={}&page=1&page_size=30",
+            "{}{}?q={}&page=1&page_size=100",
             self.config.api_base.trim_end_matches('/'),
             self.config.space_search_path,
             encode_query(term.trim())
@@ -676,7 +676,7 @@ mod tests {
         assert!(spaces[0].can_download);
         assert_eq!(
             adapter.client.urls()[0],
-            "https://artifact-api.byted.org/api/v1/group/search/skills?q=qianchuan&page=1&page_size=30"
+            "https://artifact-api.byted.org/api/v1/group/search/skills?q=qianchuan&page=1&page_size=100"
         );
     }
 

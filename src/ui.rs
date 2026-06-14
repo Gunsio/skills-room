@@ -8,7 +8,7 @@ use ratatui::{
 };
 
 use crate::{
-    app::{App, FocusArea, InputMode},
+    app::{App, FocusArea, InputMode, ListMode, SpaceListRow},
     i18n::I18nKey,
     layout::{AppLayout, too_small_message},
     skill::{RiskLevel, SkillState},
@@ -39,10 +39,6 @@ pub fn render(app: &App, frame: &mut Frame<'_>) {
 
     if app.show_help() {
         render_help_overlay(app, frame, area, theme);
-    }
-
-    if app.space_picker_open() {
-        render_space_picker(app, frame, area, theme);
     }
 
     if app.settings_open() {
@@ -127,6 +123,9 @@ fn render_search(
 
 fn search_prompt(app: &App, theme: ThemePalette) -> Span<'static> {
     match app.input_mode() {
+        InputMode::Normal if app.list_mode() == ListMode::Spaces => {
+            Span::styled("Search spaces...", theme.muted())
+        }
         InputMode::Normal => Span::styled("Search skills...", theme.muted()),
         InputMode::Search if app.search_query().is_empty() => Span::styled("", theme.info()),
         InputMode::Search => Span::styled(app.search_query().to_string(), theme.info()),
@@ -358,6 +357,18 @@ fn render_table(
     area: ratatui::layout::Rect,
     theme: ThemePalette,
 ) {
+    match app.list_mode() {
+        ListMode::Skills => render_skills_table(app, frame, area, theme),
+        ListMode::Spaces => render_spaces_table(app, frame, area, theme),
+    }
+}
+
+fn render_skills_table(
+    app: &App,
+    frame: &mut Frame<'_>,
+    area: ratatui::layout::Rect,
+    theme: ThemePalette,
+) {
     let columns = TableColumn::visible(area.width);
     let header = Row::new(columns.iter().map(|column| {
         Cell::from(Span::styled(
@@ -398,6 +409,108 @@ fn render_table(
     frame.render_stateful_widget(table, area, &mut state);
 }
 
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+enum SpaceColumn {
+    Icon,
+    Name,
+    Packages,
+    Scope,
+    State,
+}
+
+impl SpaceColumn {
+    fn visible(area_width: u16) -> Vec<Self> {
+        if area_width < 58 {
+            vec![Self::Icon, Self::Name, Self::Packages, Self::State]
+        } else {
+            vec![
+                Self::Icon,
+                Self::Name,
+                Self::Packages,
+                Self::Scope,
+                Self::State,
+            ]
+        }
+    }
+
+    fn title(self) -> &'static str {
+        match self {
+            Self::Icon => "",
+            Self::Name => "Name",
+            Self::Packages => "Skills",
+            Self::Scope => "Scope",
+            Self::State => "State",
+        }
+    }
+
+    fn constraint(self, area_width: u16) -> Constraint {
+        match self {
+            Self::Icon => Constraint::Length(2),
+            Self::Name if area_width < 58 => Constraint::Percentage(45),
+            Self::Name => Constraint::Percentage(30),
+            Self::Packages => Constraint::Length(8),
+            Self::Scope => Constraint::Percentage(38),
+            Self::State => Constraint::Min(10),
+        }
+    }
+
+    fn cell(self, space: &SpaceListRow, theme: ThemePalette) -> Cell<'static> {
+        match self {
+            Self::Icon => Cell::from(space_icon(space, theme)),
+            Self::Name => Cell::from(space.label.clone()),
+            Self::Packages => Cell::from(space.package_count.to_string()),
+            Self::Scope => Cell::from(space.scope.clone()),
+            Self::State => Cell::from(space_state_line(space, theme)),
+        }
+    }
+}
+
+fn render_spaces_table(
+    app: &App,
+    frame: &mut Frame<'_>,
+    area: ratatui::layout::Rect,
+    theme: ThemePalette,
+) {
+    let columns = SpaceColumn::visible(area.width);
+    let header = Row::new(columns.iter().map(|column| {
+        Cell::from(Span::styled(
+            column.title(),
+            theme.label().add_modifier(Modifier::BOLD),
+        ))
+    }))
+    .bottom_margin(1);
+
+    let visible = app.visible_spaces();
+    let rows = visible.iter().enumerate().map(|(index, space)| {
+        let style = if index == app.space_selected_index() {
+            theme.selected()
+        } else {
+            theme.value()
+        };
+
+        Row::new(columns.iter().map(|column| column.cell(space, theme))).style(style)
+    });
+
+    let constraints = columns
+        .iter()
+        .map(|column| column.constraint(area.width))
+        .collect::<Vec<_>>();
+
+    let table = Table::new(rows, constraints)
+        .header(header)
+        .column_spacing(2)
+        .row_highlight_style(theme.selected())
+        .block(titled_block(
+            "Spaces",
+            app.focus() == FocusArea::Table,
+            theme,
+        ));
+
+    let mut state = TableState::default()
+        .with_selected((!app.visible_spaces().is_empty()).then_some(app.space_selected_index()));
+    frame.render_stateful_widget(table, area, &mut state);
+}
+
 fn skill_icon(skill: &crate::skill::SkillRecord, theme: ThemePalette) -> Line<'static> {
     let (icon, style) = if skill.error.is_some()
         || matches!(
@@ -422,12 +535,47 @@ fn skill_icon(skill: &crate::skill::SkillRecord, theme: ThemePalette) -> Line<'s
     Line::from(Span::styled(icon, style))
 }
 
+fn space_icon(space: &SpaceListRow, theme: ThemePalette) -> Line<'static> {
+    let (icon, style) = if space.active {
+        ("◆", theme.title())
+    } else if space.enabled {
+        ("◇", theme.info())
+    } else {
+        ("!", theme.error().add_modifier(Modifier::BOLD))
+    };
+
+    Line::from(Span::styled(icon, style))
+}
+
+fn space_state_line(space: &SpaceListRow, theme: ThemePalette) -> Line<'static> {
+    let (label, style) = space_state_label(space, theme);
+
+    Line::from(Span::styled(label, style))
+}
+
+fn space_state_label(space: &SpaceListRow, theme: ThemePalette) -> (&'static str, Style) {
+    if space.active {
+        ("Active", theme.title())
+    } else if space.id.is_none() {
+        ("Local", theme.value())
+    } else if space.enabled {
+        ("Available", theme.info())
+    } else {
+        ("Unavailable", theme.error())
+    }
+}
+
 fn render_details(
     app: &App,
     frame: &mut Frame<'_>,
     area: ratatui::layout::Rect,
     theme: ThemePalette,
 ) {
+    if app.list_mode() == ListMode::Spaces {
+        render_space_details(app, frame, area, theme);
+        return;
+    }
+
     let lines = match app.selected_skill() {
         Some(skill) => vec![
             Line::from(vec![
@@ -511,6 +659,77 @@ fn render_details(
     );
 }
 
+fn render_space_details(
+    app: &App,
+    frame: &mut Frame<'_>,
+    area: ratatui::layout::Rect,
+    theme: ThemePalette,
+) {
+    let lines = match app.selected_space_row() {
+        Some(space) => vec![
+            Line::from(vec![
+                Span::styled("◇ ", theme.title()),
+                Span::styled(space.label.clone(), theme.info()),
+            ]),
+            Line::from(if space.id.is_none() {
+                "Local installed skills only".to_string()
+            } else {
+                "AgentBuddy Space".to_string()
+            }),
+            Line::from(""),
+            Line::from(vec![
+                Span::styled("Skills: ", theme.label()),
+                Span::styled(space.package_count.to_string(), theme.value()),
+            ]),
+            Line::from(vec![
+                Span::styled("Scope: ", theme.label()),
+                Span::styled(space.scope.clone(), theme.value()),
+            ]),
+            Line::from(vec![
+                Span::styled("URL: ", theme.label()),
+                Span::styled(
+                    if space.url.is_empty() {
+                        "none"
+                    } else {
+                        &space.url
+                    }
+                    .to_string(),
+                    theme.value(),
+                ),
+            ]),
+            Line::from(""),
+            Line::from(vec![Span::styled("State: ", theme.label()), {
+                let (label, style) = space_state_label(&space, theme);
+                Span::styled(label, style)
+            }]),
+            Line::from(vec![
+                Span::styled("Source: ", theme.label()),
+                Span::styled(
+                    if space.id.is_none() {
+                        "local inventory"
+                    } else {
+                        "skills.bytedance.net"
+                    },
+                    theme.value(),
+                ),
+            ]),
+        ],
+        None => vec![Line::from(Span::styled("No Space selected", theme.muted()))],
+    };
+
+    frame.render_widget(
+        Paragraph::new(lines)
+            .style(theme.value())
+            .block(titled_block(
+                app.text(I18nKey::PanelDetails),
+                app.focus() == FocusArea::Details,
+                theme,
+            ))
+            .wrap(Wrap { trim: false }),
+        area,
+    );
+}
+
 fn files_summary(skill: &crate::skill::SkillRecord) -> String {
     format!(
         "{} files, {} dirs, {} refs, {} assets, {} lines",
@@ -536,6 +755,11 @@ fn render_stats(
     area: ratatui::layout::Rect,
     theme: ThemePalette,
 ) {
+    if app.list_mode() == ListMode::Spaces {
+        render_space_stats(app, frame, area, theme);
+        return;
+    }
+
     let total = app.skills().len();
     let visible = app.visible_skills().len();
     let local = app
@@ -603,6 +827,43 @@ fn render_stats(
             Span::styled(" high risk", theme.value()),
         ]),
         filter_line,
+    ];
+
+    frame.render_widget(
+        Paragraph::new(lines)
+            .style(theme.value())
+            .wrap(Wrap { trim: false }),
+        area,
+    );
+}
+
+fn render_space_stats(
+    app: &App,
+    frame: &mut Frame<'_>,
+    area: ratatui::layout::Rect,
+    theme: ThemePalette,
+) {
+    let visible = app.visible_spaces().len();
+    let total = app.space_count();
+    let active = app.active_space_label().unwrap_or("local only");
+    let search = if app.search_query().is_empty() {
+        "none".to_string()
+    } else {
+        app.search_query().to_string()
+    };
+    let lines = vec![
+        Line::from(vec![
+            Span::styled(visible.to_string(), theme.title()),
+            Span::styled(" visible spaces | ", theme.value()),
+            Span::styled(total.to_string(), theme.title()),
+            Span::styled(" remote | Active ", theme.value()),
+            Span::styled(active.to_string(), theme.info()),
+        ]),
+        Line::from(vec![
+            Span::styled("Space search ", theme.muted()),
+            Span::styled(search, theme.info()),
+            Span::styled(" | Enter/l opens | h returns", theme.muted()),
+        ]),
     ];
 
     frame.render_widget(
@@ -690,6 +951,11 @@ fn output_window_start(total: usize, capacity: usize) -> usize {
 }
 
 fn render_help(app: &App, frame: &mut Frame<'_>, area: ratatui::layout::Rect, theme: ThemePalette) {
+    if app.list_mode() == ListMode::Spaces {
+        render_space_help(frame, area, theme);
+        return;
+    }
+
     let key_style = theme.title();
     let text_style = theme.muted();
     let h_hint = if app.focus() == FocusArea::Details {
@@ -811,6 +1077,95 @@ fn render_help(app: &App, frame: &mut Frame<'_>, area: ratatui::layout::Rect, th
     );
 }
 
+fn render_space_help(frame: &mut Frame<'_>, area: ratatui::layout::Rect, theme: ThemePalette) {
+    let key_style = theme.title();
+    let text_style = theme.muted();
+    let lines = if area.width < 100 {
+        vec![
+            help_line(
+                "General   : ",
+                [
+                    ("q", "quit"),
+                    ("R", "refresh"),
+                    ("/", "search"),
+                    ("?", "help"),
+                ],
+                key_style,
+                text_style,
+            ),
+            help_line(
+                "Navigation: ",
+                [
+                    ("j/↓", "down"),
+                    ("k/↑", "up"),
+                    ("PgUp", "prev"),
+                    ("PgDn", "next"),
+                ],
+                key_style,
+                text_style,
+            ),
+            help_line(
+                "Commands  : ",
+                [
+                    ("enter/l", "open"),
+                    ("h", "skills"),
+                    ("s", "skills"),
+                    (",", "settings"),
+                ],
+                key_style,
+                text_style,
+            ),
+        ]
+    } else {
+        vec![
+            help_line(
+                "General   : ",
+                [
+                    ("q", "quit"),
+                    ("R", "refresh spaces"),
+                    ("tab", "switch focus"),
+                    ("/", "search"),
+                    ("esc", "skills"),
+                    ("enter/l", "open space"),
+                ],
+                key_style,
+                text_style,
+            ),
+            help_line(
+                "Navigation: ",
+                [
+                    ("j/↓", "cursor down"),
+                    ("k/↑", "cursor up"),
+                    ("PageUp", "prev page"),
+                    ("PageDown", "next page"),
+                    ("g", "go to top"),
+                    ("G", "go to bottom"),
+                ],
+                key_style,
+                text_style,
+            ),
+            help_line(
+                "Commands  : ",
+                [
+                    ("h", "skills"),
+                    ("s", "skills"),
+                    (",", "settings"),
+                    ("?", "help"),
+                ],
+                key_style,
+                text_style,
+            ),
+        ]
+    };
+
+    frame.render_widget(
+        Paragraph::new(lines)
+            .style(theme.value())
+            .wrap(Wrap { trim: false }),
+        area,
+    );
+}
+
 fn help_line<const N: usize>(
     label: &'static str,
     parts: [(&'static str, &'static str); N],
@@ -911,54 +1266,6 @@ fn render_action_confirmation(
         Paragraph::new(lines)
             .style(theme.value())
             .block(focused_block(app.text(I18nKey::PanelConfirm), true, theme))
-            .wrap(Wrap { trim: false }),
-        popup,
-    );
-}
-
-fn render_space_picker(
-    app: &App,
-    frame: &mut Frame<'_>,
-    area: ratatui::layout::Rect,
-    theme: ThemePalette,
-) {
-    let popup = centered_rect(area, 64, 54);
-    let mut lines = vec![
-        Line::from(vec![
-            Span::styled("Spaces", theme.title()),
-            Span::raw("  "),
-            Span::styled("Enter/l selects  h/Esc closes", theme.muted()),
-        ]),
-        Line::from(""),
-    ];
-
-    for (index, row) in app.space_picker_rows().into_iter().enumerate() {
-        let cursor = if index == app.space_picker_selected() {
-            "> "
-        } else {
-            "  "
-        };
-        let active = if row.active { "◆ " } else { "◇ " };
-        let line = Line::from(vec![
-            Span::raw(cursor),
-            Span::styled(active, theme.title()),
-            Span::styled(format!("{:<24}", row.label), theme.label()),
-            Span::styled(format!("{:<16}", row.value), theme.value()),
-            Span::raw("  "),
-            Span::styled(row.scope, theme.muted()),
-        ]);
-        if index == app.space_picker_selected() {
-            lines.push(line.style(theme.selected()));
-        } else {
-            lines.push(line);
-        }
-    }
-
-    frame.render_widget(ratatui::widgets::Clear, popup);
-    frame.render_widget(
-        Paragraph::new(lines)
-            .style(theme.value())
-            .block(focused_block("Spaces", true, theme))
             .wrap(Wrap { trim: false }),
         popup,
     );

@@ -64,6 +64,13 @@ impl AppConfig {
             warnings.push(ConfigWarning::DefaultSourceRestored);
             self.sources.push(SourceSettings::bytedance());
         }
+        if self
+            .space_search_query
+            .trim()
+            .eq_ignore_ascii_case("qianchuan")
+        {
+            self.space_search_query = default_space_search_query();
+        }
         if self.space_search_query.trim().is_empty() {
             self.space_search_query = default_space_search_query();
         }
@@ -94,7 +101,7 @@ impl AppConfig {
 }
 
 fn default_space_search_query() -> String {
-    "qianchuan".to_string()
+    String::new()
 }
 
 #[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
@@ -536,7 +543,7 @@ mod tests {
             Some("https://skills.bytedance.net/")
         );
         assert_eq!(config.active_space, None);
-        assert_eq!(config.space_search_query, "qianchuan");
+        assert_eq!(config.space_search_query, "");
         assert!(config.spaces.is_empty());
     }
 
