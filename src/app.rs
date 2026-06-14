@@ -6,10 +6,14 @@ use ratatui::{DefaultTerminal, Frame};
 
 use crate::{
     actions::{ActionKind, ActionPlan, ActionPlanner},
+    agentbuddy_marketplace::{
+        AgentBuddyMarketplaceAdapter, AgentBuddyMarketplaceConfig, CurlHttpClient, HttpClient,
+    },
     config::{AppConfig, LoadedConfig, SourceKind, SourceSettings, SpaceSettings},
     i18n::{I18nCatalog, I18nKey},
     runner::{ActionRunner, RunnerEvent, RunningAction},
     skill::{RiskLevel, SkillRecord, SkillScope, SkillState, Source, fixture_skills},
+    source::{SourceAdapter, SourceOrder, SourceQuery},
     theme::{ThemePalette, ThemeRegistry},
 };
 
@@ -35,6 +39,7 @@ pub struct App {
     config: AppConfig,
     i18n: I18nCatalog,
     settings: SettingsState,
+    remote_sources_enabled: bool,
 }
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
@@ -153,7 +158,10 @@ impl App {
             skills
         };
 
-        Self::from_skills_with_config(skills, loaded_config)
+        let mut app = Self::from_skills_with_config(skills, loaded_config);
+        app.remote_sources_enabled = true;
+        app.load_remote_space_into_table();
+        app
     }
 
     pub fn from_skills(skills: Vec<SkillRecord>) -> Self {
@@ -221,6 +229,7 @@ impl App {
             config,
             i18n,
             settings,
+            remote_sources_enabled: false,
         }
     }
     pub fn run(mut self, mut terminal: DefaultTerminal) -> Result<()> {
@@ -404,6 +413,33 @@ impl App {
             "[status] Refreshed {} skills from local inventory.",
             self.skills.len()
         ));
+        if self.remote_sources_enabled {
+            self.load_remote_space_into_table();
+        }
+    }
+
+    fn load_remote_space_into_table(&mut self) {
+        match fetch_active_space_records(&self.config, CurlHttpClient::default()) {
+            Ok((space_label, records)) => {
+                let total = records.len();
+                let added = merge_remote_records(&mut self.skills, records);
+                self.clamp_selection();
+                self.push_output(&format!(
+                    "[source] Loaded {total} skills from Space {space_label}; {added} added to table."
+                ));
+            }
+            Err(RemoteSpaceLoadError::NoActiveSpace) => {
+                self.push_output("[source] No active Space configured.");
+            }
+            Err(RemoteSpaceLoadError::NoEnabledSource) => {
+                self.push_output("[source] No enabled AgentBuddy source configured.");
+            }
+            Err(RemoteSpaceLoadError::SearchFailed { space_label, error }) => {
+                self.push_output(&format!(
+                    "[source] Space {space_label} unavailable: {error}."
+                ));
+            }
+        }
     }
 
     fn clear_filters(&mut self) {
@@ -1252,6 +1288,71 @@ fn active_space(config: &AppConfig) -> Option<&SpaceSettings> {
         .find(|space| space.enabled && &space.id == active)
 }
 
+#[derive(Debug)]
+enum RemoteSpaceLoadError {
+    NoActiveSpace,
+    NoEnabledSource,
+    SearchFailed {
+        space_label: String,
+        error: crate::source::SourceError,
+    },
+}
+
+fn fetch_active_space_records<C: HttpClient>(
+    config: &AppConfig,
+    client: C,
+) -> Result<(String, Vec<SkillRecord>), RemoteSpaceLoadError> {
+    let Some(space) = active_space(config) else {
+        return Err(RemoteSpaceLoadError::NoActiveSpace);
+    };
+    let Some(source) = active_agentbuddy_source(config) else {
+        return Err(RemoteSpaceLoadError::NoEnabledSource);
+    };
+
+    let default_source_config = AgentBuddyMarketplaceConfig::default();
+    let portal_url = source
+        .portal_url
+        .clone()
+        .unwrap_or_else(|| default_source_config.portal_url.clone());
+    let source_config = AgentBuddyMarketplaceConfig {
+        id: source.name.clone(),
+        api_base: source.url.trim_end_matches('/').to_string(),
+        portal_url,
+        scope: space.scope.clone(),
+        ..default_source_config
+    };
+    let adapter = AgentBuddyMarketplaceAdapter::new(source_config, client);
+    let mut query = SourceQuery::new("");
+    query.scope = Some(space.scope.clone());
+    query.order_by = SourceOrder::StarDesc;
+
+    adapter
+        .search(&query)
+        .map(|records| (space.label.clone(), records))
+        .map_err(|error| RemoteSpaceLoadError::SearchFailed {
+            space_label: space.label.clone(),
+            error,
+        })
+}
+
+fn active_agentbuddy_source(config: &AppConfig) -> Option<&SourceSettings> {
+    config
+        .sources
+        .iter()
+        .find(|source| source.enabled && source.kind == SourceKind::AgentBuddy)
+}
+
+fn merge_remote_records(skills: &mut Vec<SkillRecord>, records: Vec<SkillRecord>) -> usize {
+    let before = skills.len();
+    for record in records {
+        if skills.iter().any(|skill| skill.name == record.name) {
+            continue;
+        }
+        skills.push(record);
+    }
+    skills.len().saturating_sub(before)
+}
+
 fn next_active_space(current: Option<&str>, spaces: &[SpaceSettings]) -> Option<String> {
     let enabled = spaces
         .iter()
@@ -1366,6 +1467,7 @@ fn exit_code_label(code: Option<i32>) -> String {
 mod tests {
     use super::*;
     use crate::{
+        agentbuddy_marketplace::{HttpResponse, MockHttpClient},
         config::{Language, SafetySettings, ThemeName, load_or_default},
         i18n::I18nKey,
         runner::{ActionRunner, MockActionRunner, RunnerEvent},
@@ -1825,6 +1927,75 @@ mod tests {
 
         let loaded = load_or_default(path);
         assert_eq!(loaded.config.active_space.as_deref(), Some("qianchuan-fe"));
+    }
+
+    #[test]
+    fn active_space_fetch_uses_configured_group_and_agentbuddy_source() {
+        let client = MockHttpClient::new(vec![Ok(HttpResponse::json(
+            200,
+            r#"{"count":15,"data":[{"identifier":"skills:skills.byted.org/qianchuan/fe/qc-component-workflow","name":"qc-component-workflow","description":"component workflow","newest_version":{"version":"1.0.1"},"namespace":"skills.byted.org/qianchuan/fe","stars":2,"download_total":96,"no_permission":false}]}"#,
+        ))]);
+
+        let (space_label, records) = fetch_active_space_records(&AppConfig::default(), &client)
+            .expect("active space records should load");
+
+        assert_eq!(space_label, "qianchuan/fe");
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0].name, "qc-component-workflow");
+        assert_eq!(records[0].source, Source::InternalRegistry);
+        assert_eq!(records[0].state, SkillState::Installable);
+        assert_eq!(records[0].update.as_deref(), Some("96"));
+        assert!(
+            records[0]
+                .tags
+                .contains(&"space:skills.byted.org/qianchuan/fe".to_string())
+        );
+        assert_eq!(
+            client.urls()[0],
+            "https://artifact-api.byted.org/api/v1/package/search/skills/?group=skills.byted.org%2Fqianchuan%2Ffe&page=1&page_size=30&order_by=star_desc"
+        );
+    }
+
+    #[test]
+    fn active_space_fetch_requires_enabled_agentbuddy_source() {
+        let mut config = AppConfig::default();
+        config.sources[0].enabled = false;
+        let client = MockHttpClient::default();
+
+        let error = fetch_active_space_records(&config, &client).unwrap_err();
+
+        assert!(matches!(error, RemoteSpaceLoadError::NoEnabledSource));
+        assert!(client.urls().is_empty());
+    }
+
+    #[test]
+    fn remote_space_records_merge_without_clobbering_local_skills() {
+        let mut skills = fixture_skills();
+        let mut duplicate = skills[0].clone();
+        duplicate.source = Source::InternalRegistry;
+        duplicate.state = SkillState::Installable;
+        let mut remote = duplicate.clone();
+        remote.name = "qc-component-workflow".to_string();
+        remote.path = PathBuf::from(
+            "agentbuddy://skills:skills.byted.org/qianchuan/fe/qc-component-workflow",
+        );
+
+        let added = merge_remote_records(&mut skills, vec![duplicate, remote]);
+
+        assert_eq!(added, 1);
+        assert!(skills.iter().any(|skill| skill.name == "taproom"));
+        assert!(
+            skills
+                .iter()
+                .any(|skill| skill.name == "qc-component-workflow")
+        );
+        assert_eq!(
+            skills
+                .iter()
+                .filter(|skill| skill.name == "taproom")
+                .count(),
+            1
+        );
     }
 
     #[test]

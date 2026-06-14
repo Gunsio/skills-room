@@ -1,4 +1,4 @@
-use std::{cell::RefCell, collections::VecDeque, path::PathBuf};
+use std::{cell::RefCell, collections::VecDeque, path::PathBuf, process::Command};
 
 use serde_json::Value;
 
@@ -14,9 +14,9 @@ use crate::{
 };
 
 pub const DEFAULT_AGENTBUDDY_API_BASE: &str = "https://artifact-api.byted.org";
-pub const DEFAULT_AGENTBUDDY_SEARCH_PATH: &str = "/api/marketplace/search";
-pub const DEFAULT_AGENTBUDDY_DETAIL_PATH: &str = "/api/marketplace/detail";
-pub const DEFAULT_AGENTBUDDY_SCOPE: &str = "internal";
+pub const DEFAULT_AGENTBUDDY_SEARCH_PATH: &str = "/api/v1/package/search/skills";
+pub const DEFAULT_AGENTBUDDY_DETAIL_PATH: &str = "/api/v1/package";
+pub const DEFAULT_AGENTBUDDY_SCOPE: &str = "skills.byted.org/default/public";
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct AgentBuddyMarketplaceConfig {
@@ -145,20 +145,21 @@ impl<C: HttpClient> SourceAdapter for AgentBuddyMarketplaceAdapter<C> {
 
 impl<C> AgentBuddyMarketplaceAdapter<C> {
     fn search_url(&self, query: &SourceQuery) -> String {
-        let scope = query.scope.as_deref().unwrap_or(&self.config.scope);
+        let group = query.scope.as_deref().unwrap_or(&self.config.scope);
+        let keyword = encode_query(query.term.trim());
         format!(
-            "{}{}?type=skill&scope={}&q={}&order_by={}",
+            "{}{}/{}?group={}&page=1&page_size=30&order_by={}",
             self.config.api_base.trim_end_matches('/'),
             self.config.search_path,
-            encode_query(scope),
-            encode_query(&query.term),
+            keyword,
+            encode_query(group),
             query.order_by.api_value()
         )
     }
 
     fn detail_url(&self, request: &SourceDetailRequest) -> String {
         format!(
-            "{}{}?type=skill&id={}",
+            "{}{}/{}",
             self.config.api_base.trim_end_matches('/'),
             self.config.detail_path,
             encode_query(&request.id)
@@ -168,6 +169,73 @@ impl<C> AgentBuddyMarketplaceAdapter<C> {
 
 pub trait HttpClient {
     fn get(&self, url: &str) -> Result<HttpResponse, HttpError>;
+}
+
+impl<T: HttpClient + ?Sized> HttpClient for &T {
+    fn get(&self, url: &str) -> Result<HttpResponse, HttpError> {
+        (**self).get(url)
+    }
+}
+
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct CurlHttpClient {
+    bin: String,
+    timeout_seconds: u64,
+}
+
+impl Default for CurlHttpClient {
+    fn default() -> Self {
+        Self {
+            bin: "curl".to_string(),
+            timeout_seconds: 4,
+        }
+    }
+}
+
+impl CurlHttpClient {
+    pub fn new(bin: impl Into<String>, timeout_seconds: u64) -> Self {
+        Self {
+            bin: bin.into(),
+            timeout_seconds,
+        }
+    }
+}
+
+impl HttpClient for CurlHttpClient {
+    fn get(&self, url: &str) -> Result<HttpResponse, HttpError> {
+        let timeout = self.timeout_seconds.to_string();
+        let output = Command::new(&self.bin)
+            .args([
+                "-sS",
+                "-L",
+                "--max-time",
+                &timeout,
+                "-w",
+                "\n__SKILLROOM_STATUS__:%{http_code}",
+                url,
+            ])
+            .output()
+            .map_err(|error| HttpError::new(format!("{} failed: {error}", self.bin)))?;
+
+        let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        if !output.status.success() {
+            return Err(HttpError::new(if stderr.is_empty() {
+                format!("{} exited without status", self.bin)
+            } else {
+                stderr
+            }));
+        }
+
+        let Some((body, status)) = stdout.rsplit_once("\n__SKILLROOM_STATUS__:") else {
+            return Err(HttpError::new("curl status marker missing"));
+        };
+        let status = status
+            .trim()
+            .parse::<u16>()
+            .map_err(|error| HttpError::new(format!("invalid curl http status: {error}")))?;
+        Ok(HttpResponse::json(status, body))
+    }
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
@@ -231,20 +299,31 @@ fn marketplace_skill_record(
     item: &Value,
     config: &AgentBuddyMarketplaceConfig,
 ) -> SourceAdapterResult<SkillRecord> {
-    let id = string_field(item, &["id", "resource_id", "artifact_id"])
+    let id = string_field(item, &["identifier", "resource_id", "artifact_id", "id"])
         .ok_or_else(|| SourceError::new(SourceErrorKind::Schema, "marketplace skill missing id"))?;
     let name = string_field(item, &["name", "display_name", "title"]).ok_or_else(|| {
         SourceError::new(SourceErrorKind::Schema, "marketplace skill missing name")
     })?;
-    let description = string_field(item, &["description", "summary"]).unwrap_or_default();
-    let version = string_field(item, &["version"]);
+    let description = non_empty_string_field(item, &["description", "description_ai", "summary"])
+        .unwrap_or_default();
+    let version = version_field(item);
     let star_count = unsigned_field(item, &["star_count", "stars"]);
-    let installable = bool_field(item, &["installable"]).unwrap_or(true);
+    let download_total = unsigned_field(item, &["download_total", "downloads"]);
+    let installable = bool_field(item, &["installable"])
+        .unwrap_or_else(|| !bool_field(item, &["no_permission"]).unwrap_or(false));
     let agents = agents_field(item);
     let compatible_agents = agents.iter().map(|agent| agent.name.clone()).collect();
     let mut tags = strings_field(item, "tags");
+    tags.extend(strings_field(item, "labels"));
+    tags.extend(strings_field(item, "categories"));
     if let Some(stars) = star_count {
         tags.push(format!("stars:{stars}"));
+    }
+    if let Some(downloads) = download_total {
+        tags.push(format!("downloads:{downloads}"));
+    }
+    if let Some(namespace) = string_field(item, &["namespace", "group"]) {
+        tags.push(format!("space:{namespace}"));
     }
     if installable {
         tags.push("installable".to_string());
@@ -262,7 +341,9 @@ fn marketplace_skill_record(
         },
         risk: RiskLevel::None,
         version,
-        update: Some("remote".to_string()),
+        update: download_total
+            .map(|downloads| downloads.to_string())
+            .or_else(|| Some("remote".to_string())),
         path: PathBuf::from(format!("agentbuddy://{id}")),
         description,
         scripts: Vec::new(),
@@ -304,17 +385,32 @@ fn extract_items(value: &Value) -> Option<&Vec<Value>> {
         .as_array()
         .or_else(|| value.get("items").and_then(Value::as_array))
         .or_else(|| value.get("results").and_then(Value::as_array))
+        .or_else(|| value.get("data").and_then(Value::as_array))
         .or_else(|| value.pointer("/data/items").and_then(Value::as_array))
         .or_else(|| value.pointer("/data/results").and_then(Value::as_array))
 }
 
 fn string_field(value: &Value, keys: &[&str]) -> Option<String> {
-    keys.iter().find_map(|key| {
-        value
-            .get(*key)
-            .and_then(Value::as_str)
-            .map(ToString::to_string)
-    })
+    keys.iter().find_map(|key| string_at(value.get(*key)?))
+}
+
+fn string_at(value: &Value) -> Option<String> {
+    value
+        .as_str()
+        .map(ToString::to_string)
+        .or_else(|| value.as_u64().map(|value| value.to_string()))
+        .or_else(|| value.as_i64().map(|value| value.to_string()))
+}
+
+fn non_empty_string_field(value: &Value, keys: &[&str]) -> Option<String> {
+    keys.iter()
+        .filter_map(|key| string_at(value.get(*key)?))
+        .find(|value| !value.trim().is_empty())
+}
+
+fn version_field(value: &Value) -> Option<String> {
+    string_field(value, &["version"])
+        .or_else(|| value.pointer("/newest_version/version").and_then(string_at))
 }
 
 fn unsigned_field(value: &Value, keys: &[&str]) -> Option<u64> {
@@ -386,34 +482,46 @@ mod tests {
     use crate::source::{SourceOrder, SourceQuery};
 
     #[test]
-    fn search_builds_internal_scope_request_and_maps_records() {
+    fn search_builds_space_group_request_and_maps_records() {
         let client = MockHttpClient::new(vec![Ok(HttpResponse::json(
             200,
-            r#"{"data":{"items":[{"id":"skills:code-review","name":"code-review","description":"Review code","version":"1.0.0","scope":"internal","star_count":42,"agents":["codex"],"tags":["quality"],"installable":true}]}}"#,
+            r#"{"count":15,"data":[{"id":609863,"identifier":"skills:skills.byted.org/qianchuan/fe/qc-component-workflow","name":"qc-component-workflow","description":"Component workflow","newest_version":{"version":"1.0.1"},"namespace":"skills.byted.org/qianchuan/fe","group":"skills.byted.org/qianchuan/fe","stars":2,"download_total":96,"labels":["sequence::RD"],"no_permission":false}]}"#,
         ))]);
         let adapter =
             AgentBuddyMarketplaceAdapter::new(AgentBuddyMarketplaceConfig::default(), client);
         let mut query = SourceQuery::new("code review");
+        query.scope = Some("skills.byted.org/qianchuan/fe".to_string());
         query.order_by = SourceOrder::StarDesc;
 
         let records = adapter.search(&query).unwrap();
 
         assert_eq!(records.len(), 1);
-        assert_eq!(records[0].name, "code-review");
+        assert_eq!(records[0].name, "qc-component-workflow");
         assert_eq!(records[0].source, Source::InternalRegistry);
         assert_eq!(records[0].state, SkillState::Installable);
+        assert_eq!(records[0].version.as_deref(), Some("1.0.1"));
+        assert_eq!(records[0].update.as_deref(), Some("96"));
         assert_eq!(
             records[0].path,
-            PathBuf::from("agentbuddy://skills:code-review")
+            PathBuf::from(
+                "agentbuddy://skills:skills.byted.org/qianchuan/fe/qc-component-workflow"
+            )
         );
         assert_eq!(
             records[0].command_plan.install[0],
-            "agentbuddy skill add skills:code-review --all"
+            "agentbuddy skill add skills:skills.byted.org/qianchuan/fe/qc-component-workflow --all"
         );
-        assert!(records[0].tags.contains(&"stars:42".to_string()));
+        assert!(records[0].tags.contains(&"stars:2".to_string()));
+        assert!(records[0].tags.contains(&"downloads:96".to_string()));
+        assert!(records[0].tags.contains(&"sequence::RD".to_string()));
+        assert!(
+            records[0]
+                .tags
+                .contains(&"space:skills.byted.org/qianchuan/fe".to_string())
+        );
         assert_eq!(
             adapter.client.urls()[0],
-            "https://artifact-api.byted.org/api/marketplace/search?type=skill&scope=internal&q=code%20review&order_by=star_desc"
+            "https://artifact-api.byted.org/api/v1/package/search/skills/code%20review?group=skills.byted.org%2Fqianchuan%2Ffe&page=1&page_size=30&order_by=star_desc"
         );
     }
 
@@ -421,7 +529,7 @@ mod tests {
     fn search_returns_head_skills_by_star_count() {
         let client = MockHttpClient::new(vec![Ok(HttpResponse::json(
             200,
-            r#"{"items":[{"id":"low","name":"low","star_count":3},{"id":"top","name":"top","star_count":99},{"id":"mid","name":"mid","star_count":10}]}"#,
+            r#"{"data":[{"identifier":"low","name":"low","stars":3},{"identifier":"top","name":"top","stars":99},{"identifier":"mid","name":"mid","stars":10}]}"#,
         ))]);
         let adapter =
             AgentBuddyMarketplaceAdapter::new(AgentBuddyMarketplaceConfig::default(), client);
@@ -443,7 +551,7 @@ mod tests {
     fn detail_maps_single_record_from_data_envelope() {
         let client = MockHttpClient::new(vec![Ok(HttpResponse::json(
             200,
-            r#"{"data":{"id":"skills:data","name":"data-analysis","summary":"Analyze data","agents":[{"name":"codex"}],"installable":false}}"#,
+            r#"{"data":{"identifier":"skills:data","name":"data-analysis","summary":"Analyze data","agents":[{"name":"codex"}],"installable":false}}"#,
         ))]);
         let adapter =
             AgentBuddyMarketplaceAdapter::new(AgentBuddyMarketplaceConfig::default(), client);
