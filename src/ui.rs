@@ -40,6 +40,10 @@ pub fn render(app: &App, frame: &mut Frame<'_>) {
     if app.settings_open() {
         render_settings(app, frame, area, theme);
     }
+
+    if app.pending_action().is_some() {
+        render_action_confirmation(app, frame, area, theme);
+    }
 }
 
 fn render_search(
@@ -424,26 +428,148 @@ fn render_output(
 fn render_help(app: &App, frame: &mut Frame<'_>, area: ratatui::layout::Rect, theme: ThemePalette) {
     let key_style = theme.title();
     let text_style = theme.muted();
-    let help = Line::from(vec![
-        Span::styled(" q ", key_style),
-        Span::styled(app.text(I18nKey::KeyQuit), text_style),
-        Span::styled(" / ", key_style),
-        Span::styled(app.text(I18nKey::KeySearch), text_style),
-        Span::styled(" ? ", key_style),
-        Span::styled(app.text(I18nKey::KeyHelp), text_style),
-        Span::styled(" , ", key_style),
-        Span::styled(app.text(I18nKey::KeySettings), text_style),
-        Span::styled(" Tab ", key_style),
-        Span::styled(app.text(I18nKey::KeyFocus), text_style),
-        Span::styled(" Enter ", key_style),
-        Span::styled(app.text(I18nKey::KeySelect), text_style),
-    ]);
+    let mut spans = if area.width < 90 {
+        vec![
+            Span::styled(" q ", key_style),
+            Span::styled(app.text(I18nKey::KeyQuit), text_style),
+            Span::styled(" / ", key_style),
+            Span::styled(app.text(I18nKey::KeySearch), text_style),
+            Span::styled(" ? ", key_style),
+            Span::styled(app.text(I18nKey::KeyHelp), text_style),
+            Span::styled(" , ", key_style),
+            Span::styled(app.text(I18nKey::KeySettings), text_style),
+            Span::styled(" Tab ", key_style),
+            Span::styled(app.text(I18nKey::KeyFocus), text_style),
+            Span::styled(" i/u/U/x/o/y ", key_style),
+            Span::styled(app.text(I18nKey::KeyActions), text_style),
+        ]
+    } else {
+        vec![
+            Span::styled(" q ", key_style),
+            Span::styled(app.text(I18nKey::KeyQuit), text_style),
+            Span::styled(" / ", key_style),
+            Span::styled(app.text(I18nKey::KeySearch), text_style),
+            Span::styled(" ? ", key_style),
+            Span::styled(app.text(I18nKey::KeyHelp), text_style),
+            Span::styled(" , ", key_style),
+            Span::styled(app.text(I18nKey::KeySettings), text_style),
+            Span::styled(" Tab ", key_style),
+            Span::styled(app.text(I18nKey::KeyFocus), text_style),
+            Span::styled(" Enter ", key_style),
+            Span::styled(app.text(I18nKey::KeySelect), text_style),
+        ]
+    };
+
+    if area.width >= 140 {
+        spans.extend([
+            Span::styled(" i ", key_style),
+            Span::styled(app.text(I18nKey::KeyInstall), text_style),
+            Span::styled(" u ", key_style),
+            Span::styled(app.text(I18nKey::KeyUpdate), text_style),
+            Span::styled(" U ", key_style),
+            Span::styled(app.text(I18nKey::KeyUpdateAll), text_style),
+            Span::styled(" x ", key_style),
+            Span::styled(app.text(I18nKey::KeyRemove), text_style),
+            Span::styled(" o ", key_style),
+            Span::styled(app.text(I18nKey::KeyOpen), text_style),
+            Span::styled(" y ", key_style),
+            Span::styled(app.text(I18nKey::KeyCopy), text_style),
+        ]);
+    } else if area.width >= 90 {
+        spans.extend([
+            Span::styled(" i/u/U/x/o/y ", key_style),
+            Span::styled(app.text(I18nKey::KeyActions), text_style),
+        ]);
+    }
+
+    let help = Line::from(spans);
 
     frame.render_widget(
         Paragraph::new(help)
             .style(theme.value())
             .block(focused_block("", false, theme)),
         area,
+    );
+}
+
+fn render_action_confirmation(
+    app: &App,
+    frame: &mut Frame<'_>,
+    area: ratatui::layout::Rect,
+    theme: ThemePalette,
+) {
+    let Some(confirmation) = app.pending_action() else {
+        return;
+    };
+    let plan = &confirmation.plan;
+    let popup = centered_rect(area, 74, 62);
+    let agents = if plan.agents.is_empty() {
+        "none".to_string()
+    } else {
+        plan.agents.join(", ")
+    };
+    let token = plan.confirmation_token.unwrap_or("");
+    let mut lines = vec![
+        Line::from(vec![
+            Span::styled(plan.title.clone(), theme.title()),
+            Span::raw("  "),
+            Span::styled(app.text(I18nKey::ConfirmEscCancels), theme.muted()),
+        ]),
+        Line::from(vec![
+            Span::styled(app.text(I18nKey::ConfirmImpact), theme.label()),
+            Span::styled(plan.impact.clone(), theme.value()),
+        ]),
+        Line::from(vec![
+            Span::styled(app.text(I18nKey::ConfirmSource), theme.label()),
+            Span::styled(plan.source.clone(), theme.value()),
+            Span::raw("  "),
+            Span::styled(app.text(I18nKey::ConfirmScope), theme.label()),
+            Span::styled(plan.scope.label(), theme.value()),
+        ]),
+        Line::from(vec![
+            Span::styled(app.text(I18nKey::ConfirmPath), theme.label()),
+            Span::styled(plan.path.display().to_string(), theme.value()),
+        ]),
+        Line::from(vec![
+            Span::styled(app.text(I18nKey::ConfirmAgents), theme.label()),
+            Span::styled(agents, theme.value()),
+        ]),
+        Line::from(""),
+        Line::from(Span::styled(app.text(I18nKey::ConfirmArgv), theme.label())),
+    ];
+
+    for command in plan.command_lines() {
+        lines.push(Line::from(Span::styled(command, theme.value())));
+    }
+
+    if !plan.skipped.is_empty() {
+        lines.push(Line::from(""));
+        lines.push(Line::from(Span::styled(
+            app.text(I18nKey::ConfirmSkipped),
+            theme.label(),
+        )));
+        for skipped in &plan.skipped {
+            lines.push(Line::from(Span::styled(skipped.clone(), theme.muted())));
+        }
+    }
+
+    lines.push(Line::from(""));
+    lines.push(Line::from(vec![
+        Span::styled(app.text(I18nKey::ConfirmToken), theme.warning()),
+        Span::styled(token, theme.title()),
+    ]));
+    lines.push(Line::from(vec![
+        Span::styled(app.text(I18nKey::ConfirmInput), theme.label()),
+        Span::styled(confirmation.input.clone(), theme.info()),
+    ]));
+
+    frame.render_widget(ratatui::widgets::Clear, popup);
+    frame.render_widget(
+        Paragraph::new(lines)
+            .style(theme.value())
+            .block(focused_block(app.text(I18nKey::PanelConfirm), true, theme))
+            .wrap(Wrap { trim: false }),
+        popup,
     );
 }
 

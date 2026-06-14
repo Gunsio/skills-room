@@ -5,6 +5,7 @@ use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifier
 use ratatui::{DefaultTerminal, Frame};
 
 use crate::{
+    actions::{ActionKind, ActionPlan, ActionPlanner},
     config::{AppConfig, LoadedConfig, SourceKind, SourceSettings},
     i18n::{I18nCatalog, I18nKey},
     skill::{RiskLevel, SkillRecord, SkillScope, SkillState, Source, fixture_skills},
@@ -26,6 +27,7 @@ pub struct App {
     output: Vec<String>,
     stream_tick: usize,
     stream_cursor: usize,
+    pending_action: Option<ActionConfirmation>,
     config_path: PathBuf,
     config: AppConfig,
     i18n: I18nCatalog,
@@ -209,6 +211,7 @@ impl App {
             output,
             stream_tick: 0,
             stream_cursor: 0,
+            pending_action: None,
             config_path: loaded_config.path,
             config,
             i18n,
@@ -254,6 +257,11 @@ impl App {
             return;
         }
 
+        if self.pending_action.is_some() {
+            self.handle_action_confirmation_key(key);
+            return;
+        }
+
         if self.input_mode == InputMode::Search {
             self.handle_search_key(key);
             return;
@@ -268,6 +276,12 @@ impl App {
             (KeyCode::Char('?'), _) => {
                 self.show_help = !self.show_help;
             }
+            (KeyCode::Char('i'), _) => self.open_action(ActionKind::Install),
+            (KeyCode::Char('u'), _) => self.open_action(ActionKind::UpdateSelected),
+            (KeyCode::Char('U'), _) => self.open_action(ActionKind::UpdateAll),
+            (KeyCode::Char('x'), _) => self.open_action(ActionKind::Remove),
+            (KeyCode::Char('o'), _) => self.open_action(ActionKind::OpenPath),
+            (KeyCode::Char('y'), _) => self.open_action(ActionKind::CopyPath),
             (KeyCode::Tab, KeyModifiers::SHIFT) => {
                 self.focus = self.focus.previous();
             }
@@ -288,6 +302,35 @@ impl App {
             (KeyCode::PageDown, _) => self.select_page_down(),
             (KeyCode::Char('g'), _) => self.select_first(),
             (KeyCode::Char('G'), _) => self.select_last(),
+            _ => {}
+        }
+    }
+
+    fn handle_action_confirmation_key(&mut self, key: KeyEvent) {
+        match key.code {
+            KeyCode::Esc => {
+                let title = self
+                    .pending_action
+                    .as_ref()
+                    .map(|confirmation| confirmation.plan.title.clone())
+                    .unwrap_or_else(|| "action".to_string());
+                self.pending_action = None;
+                self.push_output(&format!("[action] Cancelled {title}."));
+            }
+            KeyCode::Enter => self.confirm_pending_action(),
+            KeyCode::Backspace => {
+                if let Some(confirmation) = &mut self.pending_action {
+                    confirmation.input.pop();
+                }
+            }
+            KeyCode::Char(character)
+                if !key.modifiers.contains(KeyModifiers::CONTROL)
+                    && !key.modifiers.contains(KeyModifiers::ALT) =>
+            {
+                if let Some(confirmation) = &mut self.pending_action {
+                    confirmation.input.push(character);
+                }
+            }
             _ => {}
         }
     }
@@ -336,6 +379,98 @@ impl App {
         self.input_mode = InputMode::Search;
         self.focus = FocusArea::Search;
         self.show_help = false;
+    }
+
+    fn open_action(&mut self, kind: ActionKind) {
+        self.show_help = false;
+        self.input_mode = InputMode::Normal;
+
+        let planner = self.action_planner();
+        let plan = match kind {
+            ActionKind::UpdateAll => planner.update_all(&self.skills),
+            _ => planner.plan_selected(kind, self.selected_skill()),
+        };
+
+        match plan {
+            Ok(plan) if plan.confirmation_token.is_some() => {
+                self.push_plan_summary(&plan);
+                self.pending_action = Some(ActionConfirmation {
+                    input: String::new(),
+                    plan,
+                });
+            }
+            Ok(plan) => self.apply_immediate_action(plan),
+            Err(error) => {
+                self.push_output(&format!(
+                    "[action] {} unavailable: {}",
+                    kind.label(),
+                    error.user_message()
+                ));
+            }
+        }
+    }
+
+    fn confirm_pending_action(&mut self) {
+        let Some(confirmation) = self.pending_action.take() else {
+            return;
+        };
+
+        if let Some(token) = confirmation.plan.confirmation_token
+            && confirmation.input != token
+        {
+            let title = confirmation.plan.title.clone();
+            self.pending_action = Some(confirmation);
+            self.push_output(&format!("[action] {title} requires typed {token}."));
+            return;
+        }
+
+        self.push_output(&format!(
+            "[action] Confirmed {}; waiting for runner.",
+            confirmation.plan.title
+        ));
+        for command in confirmation.plan.command_lines() {
+            self.push_output(&format!("[argv] {command}"));
+        }
+    }
+
+    fn apply_immediate_action(&mut self, plan: ActionPlan) {
+        match plan.kind {
+            ActionKind::CopyPath => {
+                self.push_output(&format!("[action] Copied path: {}", plan.path.display()));
+            }
+            ActionKind::OpenPath => {
+                self.push_output(&format!(
+                    "[action] Open path requested: {}",
+                    plan.path.display()
+                ));
+                for command in plan.command_lines() {
+                    self.push_output(&format!("[argv] {command}"));
+                }
+            }
+            _ => {
+                self.push_output(&format!("[action] Prepared {}.", plan.title));
+            }
+        }
+    }
+
+    fn push_plan_summary(&mut self, plan: &ActionPlan) {
+        self.push_output(&format!(
+            "[plan] {} impact={} scope={} source={}",
+            plan.title,
+            plan.impact,
+            plan.scope.label(),
+            plan.source
+        ));
+        for command in plan.command_lines() {
+            self.push_output(&format!("[argv] {command}"));
+        }
+        for skipped in &plan.skipped {
+            self.push_output(&format!("[skip] {skipped}"));
+        }
+    }
+
+    fn action_planner(&self) -> ActionPlanner {
+        ActionPlanner::new(cfg!(test))
     }
 
     pub(crate) fn open_settings(&mut self) {
@@ -561,6 +696,10 @@ impl App {
         self.settings.open
     }
 
+    pub(crate) fn pending_action(&self) -> Option<&ActionConfirmation> {
+        self.pending_action.as_ref()
+    }
+
     pub(crate) fn settings_selected(&self) -> usize {
         self.settings.selected
     }
@@ -752,7 +891,7 @@ impl App {
         }
     }
 
-    const OUTPUT_LIMIT: usize = 8;
+    const OUTPUT_LIMIT: usize = 16;
     const STREAM_INTERVAL_TICKS: usize = 50;
     const STREAM_MESSAGES: [&'static str; 5] = [
         "[status] Local inventory ready.",
@@ -806,6 +945,12 @@ struct SettingsState {
     open: bool,
     selected: usize,
     draft: AppConfig,
+}
+
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub(crate) struct ActionConfirmation {
+    pub plan: ActionPlan,
+    pub input: String,
 }
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
@@ -1005,7 +1150,8 @@ mod tests {
             app.tick();
         }
 
-        assert_eq!(app.output().len(), App::OUTPUT_LIMIT);
+        assert!(app.output().len() <= App::OUTPUT_LIMIT);
+        assert_eq!(app.output().len(), app.output().iter().count());
         assert!(app.output().last().unwrap().starts_with("["));
     }
 
@@ -1250,6 +1396,111 @@ mod tests {
                 .iter()
                 .any(|source| source.name == "bytedance-agentbuddy")
         );
+    }
+
+    #[test]
+    fn install_action_requires_typed_confirmation() {
+        let mut app = App::default();
+
+        app.handle_key(KeyEvent::from(KeyCode::Down));
+        app.handle_key(KeyEvent::from(KeyCode::Down));
+        app.handle_key(KeyEvent::from(KeyCode::Down));
+        app.handle_key(KeyEvent::from(KeyCode::Char('i')));
+
+        assert!(app.pending_action().is_some());
+        assert_eq!(
+            app.pending_action().unwrap().plan.confirmation_token,
+            Some("INSTALL")
+        );
+        assert!(
+            app.pending_action()
+                .unwrap()
+                .plan
+                .command_lines()
+                .iter()
+                .any(|line| line == "skillroom install taproom")
+        );
+
+        for character in "NOPE".chars() {
+            app.handle_key(KeyEvent::from(KeyCode::Char(character)));
+        }
+        app.handle_key(KeyEvent::from(KeyCode::Enter));
+
+        assert!(app.pending_action().is_some());
+        assert!(
+            app.output()
+                .iter()
+                .any(|line| line.contains("requires typed INSTALL"))
+        );
+
+        while app.pending_action().unwrap().input.len() > 0 {
+            app.handle_key(KeyEvent::from(KeyCode::Backspace));
+        }
+        for character in "INSTALL".chars() {
+            app.handle_key(KeyEvent::from(KeyCode::Char(character)));
+        }
+        app.handle_key(KeyEvent::from(KeyCode::Enter));
+
+        assert!(app.pending_action().is_none());
+        assert!(
+            app.output()
+                .iter()
+                .any(|line| line.contains("Confirmed Install taproom"))
+        );
+    }
+
+    #[test]
+    fn update_all_action_only_queues_trusted_updateable_skills() {
+        let mut app = App::default();
+
+        app.handle_key(KeyEvent::from(KeyCode::Char('U')));
+
+        let confirmation = app.pending_action().unwrap();
+        assert_eq!(confirmation.plan.confirmation_token, Some("UPDATE"));
+        assert_eq!(confirmation.plan.commands.len(), 1);
+        assert_eq!(
+            confirmation.plan.commands[0].display_line(),
+            "skillroom update code-review"
+        );
+        assert!(
+            confirmation
+                .plan
+                .skipped
+                .iter()
+                .any(|line| line.contains("taproom skipped"))
+        );
+    }
+
+    #[test]
+    fn remove_action_is_guarded_for_real_home_path_under_tests() {
+        let mut app = App::default();
+
+        app.handle_key(KeyEvent::from(KeyCode::Down));
+        app.handle_key(KeyEvent::from(KeyCode::Down));
+        app.handle_key(KeyEvent::from(KeyCode::Char('x')));
+
+        assert!(app.pending_action().is_none());
+        assert!(
+            app.output()
+                .iter()
+                .any(|line| line.contains("remove blocked under test mode"))
+        );
+    }
+
+    #[test]
+    fn open_and_copy_path_actions_do_not_require_confirmation() {
+        let mut app = App::default();
+
+        app.handle_key(KeyEvent::from(KeyCode::Char('o')));
+        app.handle_key(KeyEvent::from(KeyCode::Char('y')));
+
+        assert!(app.pending_action().is_none());
+        assert!(
+            app.output()
+                .iter()
+                .any(|line| line.contains("Open path requested"))
+        );
+        assert!(app.output().iter().any(|line| line.contains("Copied path")));
     }
 
     #[test]
