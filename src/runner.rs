@@ -241,14 +241,13 @@ fn run_commands(commands: Vec<ActionCommand>, sender: mpsc::Sender<RunnerEvent>)
 
         if let Some(stdin) = &command.stdin
             && let Some(mut child_stdin) = child.stdin.take()
+            && let Err(error) = child_stdin.write_all(stdin.as_bytes())
         {
-            if let Err(error) = child_stdin.write_all(stdin.as_bytes()) {
-                let _ = sender.send(RunnerEvent::Failed(format!(
-                    "failed to write stdin for {}: {error}",
-                    command.display_line()
-                )));
-                return;
-            }
+            let _ = sender.send(RunnerEvent::Failed(format!(
+                "failed to write stdin for {}: {error}",
+                command.display_line()
+            )));
+            return;
         }
 
         let stdout = child.stdout.take();

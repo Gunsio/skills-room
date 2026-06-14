@@ -1621,7 +1621,7 @@ mod tests {
                 .any(|line| line.contains("requires typed INSTALL"))
         );
 
-        while app.pending_action().unwrap().input.len() > 0 {
+        while !app.pending_action().unwrap().input.is_empty() {
             app.handle_key(KeyEvent::from(KeyCode::Backspace));
         }
         for character in "INSTALL".chars() {
@@ -1750,11 +1750,13 @@ mod tests {
 
     #[test]
     fn failed_runner_preserves_stderr_source_argv_and_marks_skill_error() {
-        let mut app = App::default();
-        app.runner = ActionRunner::Mock(MockActionRunner::new(vec![
-            RunnerEvent::Stderr("permission denied".to_string()),
-            RunnerEvent::Finished { code: Some(2) },
-        ]));
+        let mut app = App {
+            runner: ActionRunner::Mock(MockActionRunner::new(vec![
+                RunnerEvent::Stderr("permission denied".to_string()),
+                RunnerEvent::Finished { code: Some(2) },
+            ])),
+            ..App::default()
+        };
 
         move_to_skill(&mut app, "taproom");
         app.handle_key(KeyEvent::from(KeyCode::Char('i')));
