@@ -97,6 +97,7 @@ pub struct FilterState {
     pub state: Option<SkillState>,
     pub risk: Option<RiskLevel>,
     pub update: Option<String>,
+    pub local_only: bool,
 }
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
@@ -573,6 +574,9 @@ impl App {
         match crate::config::save(&self.config_path, &config) {
             Ok(()) => {
                 self.config = config;
+                self.search_query.clear();
+                self.filters = FilterState::default();
+                self.input_mode = InputMode::Normal;
                 for warning in warnings {
                     self.push_output(&format!("[config] {warning}"));
                 }
@@ -598,6 +602,7 @@ impl App {
     }
 
     fn cycle_source_filter(&mut self) {
+        self.filters.local_only = false;
         let sources = self.available_sources();
         if sources.is_empty() {
             self.filters.source = None;
@@ -623,19 +628,14 @@ impl App {
     }
 
     fn toggle_local_filter(&mut self) {
-        self.filters.scope = if self.filters.scope == Some(SkillScope::Local) {
-            None
-        } else {
-            Some(SkillScope::Local)
-        };
+        self.filters.local_only = !self.filters.local_only;
+        if self.filters.local_only {
+            self.filters.source = None;
+        }
         self.clamp_selection();
         self.push_output(&format!(
             "[filter] Local skills -> {}.",
-            if self.filters.scope == Some(SkillScope::Local) {
-                "on"
-            } else {
-                "off"
-            }
+            if self.filters.local_only { "on" } else { "off" }
         ));
     }
 
@@ -995,7 +995,7 @@ impl App {
 
     #[cfg(test)]
     pub(crate) fn local_filter_label(&self) -> &'static str {
-        if self.filters.scope == Some(SkillScope::Local) {
+        if self.filters.local_only {
             "local"
         } else {
             "all scopes"
@@ -1235,6 +1235,7 @@ impl App {
                 .any(|tag| contains_case_insensitive(tag, &self.search_query));
 
         matches_query
+            && self.matches_active_space(skill)
             && self
                 .filters
                 .source
@@ -1248,6 +1249,33 @@ impl App {
                 .update
                 .as_ref()
                 .is_none_or(|update| skill.update_label() == update)
+            && (!self.filters.local_only || is_local_source(&skill.source))
+    }
+
+    fn matches_active_space(&self, skill: &SkillRecord) -> bool {
+        let Some(space) = active_space(&self.config) else {
+            return true;
+        };
+
+        if self.filters.scope == Some(SkillScope::Local) {
+            return true;
+        }
+
+        if self.filters.local_only {
+            return true;
+        }
+
+        if self
+            .filters
+            .source
+            .as_ref()
+            .is_some_and(|source| matches!(source, Source::LocalGit | Source::LocalArchive))
+        {
+            return true;
+        }
+
+        let space_tag = format!("space:{}", space.scope);
+        skill.tags.iter().any(|tag| tag == &space_tag)
     }
 
     fn compare_skills(&self, left: &SkillRecord, right: &SkillRecord) -> std::cmp::Ordering {
@@ -1598,12 +1626,38 @@ fn space_settings_from_agentbuddy(space: AgentBuddySpace) -> SpaceSettings {
 fn merge_remote_records(skills: &mut Vec<SkillRecord>, records: Vec<SkillRecord>) -> usize {
     let before = skills.len();
     for record in records {
-        if skills.iter().any(|skill| skill.name == record.name) {
+        if skills
+            .iter()
+            .any(|skill| same_source_record(skill, &record))
+        {
             continue;
         }
         skills.push(record);
     }
     skills.len().saturating_sub(before)
+}
+
+fn same_source_record(left: &SkillRecord, right: &SkillRecord) -> bool {
+    match (
+        left.metadata.source_id.as_deref(),
+        right.metadata.source_id.as_deref(),
+    ) {
+        (Some(left_id), Some(right_id)) => return left_id == right_id,
+        (Some(_), None) | (None, Some(_)) => {}
+        (None, None) => {}
+    }
+
+    if left.source == right.source && left.path == right.path {
+        return true;
+    }
+
+    left.source == right.source
+        && left.metadata.source_status == right.metadata.source_status
+        && left.name == right.name
+}
+
+fn is_local_source(source: &Source) -> bool {
+    matches!(source, Source::LocalGit | Source::LocalArchive)
 }
 
 fn merge_spaces(spaces: &mut Vec<SpaceSettings>, discovered: Vec<SpaceSettings>) -> usize {
@@ -1928,17 +1982,17 @@ mod tests {
     }
 
     #[test]
-    fn local_filter_key_toggles_local_only_scope() {
+    fn local_filter_key_toggles_local_source_only() {
         let mut app = App::default();
 
         app.handle_key(KeyEvent::from(KeyCode::Char('i')));
 
-        assert_eq!(app.filters.scope, Some(SkillScope::Local));
+        assert!(app.filters.local_only);
         assert_eq!(app.local_filter_label(), "local");
         assert!(
             app.visible_skills()
                 .iter()
-                .all(|(_, skill)| skill.scope == SkillScope::Local)
+                .all(|(_, skill)| is_local_source(&skill.source))
         );
         assert!(
             app.output()
@@ -1948,7 +2002,7 @@ mod tests {
 
         app.handle_key(KeyEvent::from(KeyCode::Char('i')));
 
-        assert_eq!(app.filters.scope, None);
+        assert!(!app.filters.local_only);
         assert_eq!(app.local_filter_label(), "all scopes");
         assert_eq!(app.visible_skills().len(), fixture_skills().len());
     }
@@ -2318,6 +2372,45 @@ mod tests {
     }
 
     #[test]
+    fn active_space_limits_visible_list_to_that_space() {
+        let mut skills = fixture_skills();
+        skills.push(remote_space_skill("taproom"));
+        skills.push(remote_space_skill("qc-component-workflow"));
+
+        let mut other_space = remote_space_skill("other-team-skill");
+        other_space.tags = vec!["space:skills.byted.org/other/team".to_string()];
+        other_space.metadata.source_id =
+            Some("skills:skills.byted.org/other/team/other-team-skill".to_string());
+        skills.push(other_space);
+
+        let app = App::from_skills_with_config(
+            skills,
+            LoadedConfig {
+                path: PathBuf::from("config.toml"),
+                config: AppConfig {
+                    active_space: Some("qianchuan-fe".to_string()),
+                    spaces: vec![SpaceSettings::qianchuan_fe()],
+                    ..AppConfig::default()
+                },
+                warnings: Vec::new(),
+            },
+        );
+
+        let visible_names = app
+            .visible_skills()
+            .iter()
+            .map(|(_, skill)| skill.name.as_str())
+            .collect::<Vec<_>>();
+
+        assert_eq!(visible_names, vec!["qc-component-workflow", "taproom"]);
+        assert!(app.visible_skills().iter().all(|(_, skill)| {
+            skill
+                .tags
+                .contains(&"space:skills.byted.org/qianchuan/fe".to_string())
+        }));
+    }
+
+    #[test]
     fn space_discovery_keeps_only_selectable_agentbuddy_spaces() {
         let client = MockHttpClient::new(vec![Ok(HttpResponse::json(
             200,
@@ -2338,20 +2431,27 @@ mod tests {
     }
 
     #[test]
-    fn remote_space_records_merge_without_clobbering_local_skills() {
+    fn remote_space_records_merge_without_clobbering_same_named_local_skills() {
         let mut skills = fixture_skills();
         let mut duplicate = skills[0].clone();
         duplicate.source = Source::InternalRegistry;
         duplicate.state = SkillState::Installable;
+        duplicate.path = PathBuf::from("agentbuddy://skills:skills.byted.org/qianchuan/fe/taproom");
+        duplicate.metadata.source_id =
+            Some("skills:skills.byted.org/qianchuan/fe/taproom".to_string());
+        duplicate.metadata.source_status = Some("bytedance-agentbuddy".to_string());
+        duplicate.tags = vec!["space:skills.byted.org/qianchuan/fe".to_string()];
         let mut remote = duplicate.clone();
         remote.name = "qc-component-workflow".to_string();
         remote.path = PathBuf::from(
             "agentbuddy://skills:skills.byted.org/qianchuan/fe/qc-component-workflow",
         );
+        remote.metadata.source_id =
+            Some("skills:skills.byted.org/qianchuan/fe/qc-component-workflow".to_string());
 
         let added = merge_remote_records(&mut skills, vec![duplicate, remote]);
 
-        assert_eq!(added, 1);
+        assert_eq!(added, 2);
         assert!(skills.iter().any(|skill| skill.name == "taproom"));
         assert!(
             skills
@@ -2363,7 +2463,7 @@ mod tests {
                 .iter()
                 .filter(|skill| skill.name == "taproom")
                 .count(),
-            1
+            2
         );
     }
 
@@ -2650,6 +2750,25 @@ mod tests {
         );
 
         assert_eq!(app.theme().name, ThemeName::GruvboxDark);
+    }
+
+    fn remote_space_skill(name: &str) -> SkillRecord {
+        let mut skill = fixture_skills()[0].clone();
+        skill.name = name.to_string();
+        skill.source = Source::InternalRegistry;
+        skill.scope = SkillScope::Global;
+        skill.state = SkillState::Installable;
+        skill.version = Some("1.0.0".to_string());
+        skill.update = Some("10".to_string());
+        skill.path = PathBuf::from(format!(
+            "agentbuddy://skills:skills.byted.org/qianchuan/fe/{name}"
+        ));
+        skill.tags = vec!["space:skills.byted.org/qianchuan/fe".to_string()];
+        skill.metadata.source_id = Some(format!("skills:skills.byted.org/qianchuan/fe/{name}"));
+        skill.metadata.installable = true;
+        skill.metadata.installed = false;
+        skill.metadata.source_status = Some("bytedance-agentbuddy".to_string());
+        skill
     }
 
     fn move_to_setting(app: &mut App, label: &str) {

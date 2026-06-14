@@ -421,7 +421,7 @@ fn marketplace_skill_record(
             compatible_agents,
             source_status: Some(config.id.clone()),
         },
-        error: Some(format!("portal={}", config.portal_url)),
+        error: None,
     })
 }
 
@@ -607,6 +607,7 @@ mod tests {
         assert_eq!(records[0].name, "qc-component-workflow");
         assert_eq!(records[0].source, Source::InternalRegistry);
         assert_eq!(records[0].state, SkillState::Installable);
+        assert_eq!(records[0].error, None);
         assert_eq!(records[0].version.as_deref(), Some("1.0.1"));
         assert_eq!(records[0].update.as_deref(), Some("96"));
         assert_eq!(

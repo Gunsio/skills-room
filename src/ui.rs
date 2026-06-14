@@ -160,7 +160,7 @@ fn filter_source_label(app: &App) -> String {
 }
 
 fn filter_scope_label(app: &App) -> &'static str {
-    if app.filters().scope == Some(crate::skill::SkillScope::Local) {
+    if app.filters().local_only {
         app.text(I18nKey::ValueLocalOnly)
     } else {
         app.text(I18nKey::ValueAllScopes)
@@ -169,8 +169,10 @@ fn filter_scope_label(app: &App) -> &'static str {
 
 fn has_active_filters(app: &App) -> bool {
     let filters = app.filters();
-    !app.search_query().is_empty()
+    app.active_space_label().is_some()
+        || !app.search_query().is_empty()
         || filters.source.is_some()
+        || filters.local_only
         || filters.scope.is_some()
         || filters.state.is_some()
         || filters.risk.is_some()
@@ -193,6 +195,13 @@ fn filter_summary(app: &App) -> Line<'static> {
     }
     if filters.source.is_some() {
         push_filter_part(&mut spans, "Source", app.source_filter_label());
+    }
+    if filters.local_only {
+        push_filter_part(
+            &mut spans,
+            "Source",
+            app.text(I18nKey::ValueLocalOnly).to_string(),
+        );
     }
     if filters.scope.is_some() {
         push_filter_part(
@@ -532,7 +541,12 @@ fn render_stats(
     let local = app
         .skills()
         .iter()
-        .filter(|skill| skill.scope.label() == "Local")
+        .filter(|skill| {
+            matches!(
+                skill.source,
+                crate::skill::Source::LocalGit | crate::skill::Source::LocalArchive
+            )
+        })
         .count();
     let updates = app
         .skills()
