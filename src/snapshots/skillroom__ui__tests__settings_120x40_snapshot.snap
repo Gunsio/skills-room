@@ -16,18 +16,18 @@ expression: "render_settings_snapshot(120, 40)"
 │◆   web-scraper │  Language                      English  Enter cycles language                      │                │
 │                │  Cache TTL                     1800s  Enter cycles TTL                             │                │
 │                │  Cache                         ready  Enter clears cache state                     │                │
-│                │  Safety                        locked  Cannot disable guard rails                  │ble             │
-│                │  Sources                       1 configured  Enter adds disabled source            │                │
-│                │  Source bytedance-agentbuddy   enabled  Enter toggles source                       │                │
-│                │  Test bytedance-agentbuddy     not-tested  Enter dry-runs source                   │ove             │
-│                │  Save                          persist config.toml  Enter writes config            │  - restore     │
+│                │  Safety                        locked  Cannot disable guard rails                  │ Medium         │
+│                │  Sources                       1 configured  Enter adds disabled source            │ove             │
+│                │  Source bytedance-agentbuddy   enabled  Enter toggles source                       │ble             │
+│                │  Test bytedance-agentbuddy     not-tested  Enter dry-runs source                   │                │
+│                │  Save                          persist config.toml  Enter writes config            │                │
+│                │                                                                                    │d | Local       │
 │                │                                                                                    │                │
 │                │                                                                                    │                │
 │                │                                                                                    │                │
 │                │                                                                                    │                │
-│                │                                                                                    │                │
-│                │                                                                                    │                │
-│                │                                                                                    │                │
+│                │                                                                                    │, agent-2]      │
+│                │                                                                                    │  - restore     │
 │                │                                                                                    │                │
 │                │                                                                                    │                │
 │                │                                                                                    │                │

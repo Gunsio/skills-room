@@ -14,20 +14,20 @@ expression: "render_app_snapshot(app, 120, 40)"
 │!   legacy-deploy     local/archive     Local     Error       High      blocked ││                                    │
 │◆   taproom           local/git         Local     Ready       None      current ││Primary                             │
 │◆   web-scraper       github            Global    Ready       Low       current ││版 本 : 1.8.0                         │
+│                                                                                ││Author: unknown                     │
 │                                                                                ││Signals: none                       │
-│                                                                                ││Owner: unknown                      │
-│                                                                                ││Access: not installable             │
-│                                                                                ││状 态 : Update                        │
-│                                                                                ││风 险 : Medium                        │
+│                                                                                ││State/Risk: Update | Medium         │
 │                                                                                ││操 作 : update, remove                │
+│                                                                                ││Access: not installable             │
+│                                                                                ││                                    │
+│                                                                                ││More                                │
+│                                                                                ││Source/Scope: curated | Local       │
+│                                                                                ││Space: none                         │
+│                                                                                ││Repository: unknown                 │
+│                                                                                ││Updated: unknown                    │
+│                                                                                ││Maintainers: none                   │
+│                                                                                ││Agents: 2/2 [agent-1, agent-2]      │
 │                                                                                ││+ fullscreen details  - restore     │
-│                                                                                ││                                    │
-│                                                                                ││                                    │
-│                                                                                ││                                    │
-│                                                                                ││                                    │
-│                                                                                ││                                    │
-│                                                                                ││                                    │
-│                                                                                ││                                    │
 │                                                                                ││                                    │
 │                                                                                ││                                    │
 │                                                                                ││                                    │

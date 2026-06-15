@@ -588,7 +588,7 @@ fn render_details(
     }
 
     let lines = match app.selected_skill() {
-        Some(skill) => detail_lines(app, skill, theme),
+        Some(skill) => detail_lines(app, skill, area, theme),
         None => vec![Line::from(Span::styled(
             app.text(I18nKey::NoSkillSelected),
             theme.muted(),
@@ -611,22 +611,93 @@ fn render_details(
 fn detail_lines(
     app: &App,
     skill: &crate::skill::SkillRecord,
+    area: ratatui::layout::Rect,
     theme: ThemePalette,
 ) -> Vec<Line<'static>> {
+    let density = DetailDensity::for_area(app, area);
     let mut lines = vec![
         Line::from(vec![
             Span::styled("◇ ", theme.title()),
             Span::styled(skill.name.clone(), theme.info()),
         ]),
-        Line::from(description_preview(skill, app.details_fullscreen())),
+        Line::from(description_preview(skill, density)),
     ];
 
-    if app.details_fullscreen() {
+    if density == DetailDensity::Fullscreen {
         lines.extend(full_detail_lines(app, skill, theme));
         return lines;
     }
 
-    lines.extend([
+    lines.extend(compact_primary_detail_lines(app, skill, theme));
+
+    if density >= DetailDensity::Roomy {
+        lines.extend([
+            Line::from(""),
+            detail_section("More", theme),
+            detail_pair(
+                "Source/Scope: ",
+                format!("{} | {}", skill.source.label(), skill.scope.label()),
+                theme,
+            ),
+            detail_pair(
+                "Space: ",
+                tag_value(skill, "space:").unwrap_or("none"),
+                theme,
+            ),
+            detail_pair("Repository: ", repository_summary(skill), theme),
+            detail_pair("Updated: ", modified_summary(skill), theme),
+            detail_pair("Maintainers: ", maintainers_summary(skill), theme),
+            detail_pair(
+                app.text(I18nKey::DetailAgents),
+                agents_summary(skill),
+                theme,
+            ),
+        ]);
+    }
+
+    if density >= DetailDensity::Spacious {
+        lines.extend([
+            detail_pair(
+                app.text(I18nKey::DetailPath),
+                skill.path.display().to_string(),
+                theme,
+            ),
+            detail_pair(
+                "Commands: ",
+                compact_command_summary(skill, area.width),
+                theme,
+            ),
+        ]);
+    }
+
+    if density >= DetailDensity::Spacious && detail_has_room_for_rows(area, lines.len(), 5) {
+        lines.extend([
+            Line::from(""),
+            detail_section("Implementation", theme),
+            detail_pair("Files: ", files_summary(skill), theme),
+            detail_pair("Scripts: ", csv_or_none(&skill.scripts), theme),
+            detail_pair("Tags: ", csv_or_none(&skill.tags), theme),
+        ]);
+    }
+
+    if detail_has_room_for_hint(area, lines.len()) {
+        lines.push(Line::from(vec![
+            Span::styled("+ ", theme.title()),
+            Span::styled("fullscreen details", theme.muted()),
+            Span::styled("  - ", theme.title()),
+            Span::styled("restore", theme.muted()),
+        ]));
+    }
+
+    lines
+}
+
+fn compact_primary_detail_lines(
+    app: &App,
+    skill: &crate::skill::SkillRecord,
+    theme: ThemePalette,
+) -> Vec<Line<'static>> {
+    let mut lines = vec![
         Line::from(""),
         detail_section("Primary", theme),
         detail_pair(
@@ -634,26 +705,68 @@ fn detail_lines(
             version_summary(skill),
             theme,
         ),
+        detail_pair("Author: ", author_summary(skill), theme),
         detail_pair("Signals: ", signal_summary(skill), theme),
-        detail_pair("Owner: ", owner_summary(skill), theme),
-        detail_pair("Access: ", access_summary(skill), theme),
-        detail_pair(app.text(I18nKey::DetailState), skill.state.label(), theme),
-        detail_pair(app.text(I18nKey::DetailRisk), skill.risk.label(), theme),
+    ];
+
+    lines.extend([
+        detail_pair(
+            "State/Risk: ",
+            format!("{} | {}", skill.state.label(), skill.risk.label()),
+            theme,
+        ),
         detail_pair(
             app.text(I18nKey::DetailActions),
             action_summary(skill),
             theme,
         ),
+        detail_pair("Access: ", access_summary(skill), theme),
     ]);
 
-    lines.push(Line::from(vec![
-        Span::styled("+ ", theme.title()),
-        Span::styled("fullscreen details", theme.muted()),
-        Span::styled("  - ", theme.title()),
-        Span::styled("restore", theme.muted()),
-    ]));
-
     lines
+}
+
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Ord, PartialOrd)]
+enum DetailDensity {
+    Compact,
+    Roomy,
+    Spacious,
+    Fullscreen,
+}
+
+impl DetailDensity {
+    fn for_area(app: &App, area: ratatui::layout::Rect) -> Self {
+        if app.details_fullscreen() {
+            return Self::Fullscreen;
+        }
+
+        match (area.width, area.height) {
+            (48.., 34..) => Self::Spacious,
+            (34.., 24..) => Self::Roomy,
+            _ => Self::Compact,
+        }
+    }
+}
+
+fn detail_has_room_for_hint(area: ratatui::layout::Rect, used_lines: usize) -> bool {
+    detail_has_room_for_rows(area, used_lines, 1)
+}
+
+fn detail_has_room_for_rows(
+    area: ratatui::layout::Rect,
+    used_lines: usize,
+    rows_needed: usize,
+) -> bool {
+    usize::from(area.height.saturating_sub(2)) > used_lines + rows_needed
+}
+
+fn compact_command_summary(skill: &crate::skill::SkillRecord, area_width: u16) -> String {
+    let summary = command_summary(skill);
+    if area_width >= 48 {
+        return summary;
+    }
+
+    truncate_text(&summary, usize::from(area_width.saturating_sub(14)).max(24))
 }
 
 fn full_detail_lines(
@@ -669,6 +782,7 @@ fn full_detail_lines(
             format!("{} | {}", version_summary(skill), signal_summary(skill)),
             theme,
         ),
+        detail_pair("Author: ", author_summary(skill), theme),
         detail_pair(
             "State/Risk/Actions: ",
             format!(
@@ -846,8 +960,13 @@ fn version_summary(skill: &crate::skill::SkillRecord) -> String {
     parts.join(" ")
 }
 
-fn description_preview(skill: &crate::skill::SkillRecord, fullscreen: bool) -> String {
-    let limit = if fullscreen { 800 } else { 240 };
+fn description_preview(skill: &crate::skill::SkillRecord, density: DetailDensity) -> String {
+    let limit = match density {
+        DetailDensity::Compact => 96,
+        DetailDensity::Roomy => 240,
+        DetailDensity::Spacious => 360,
+        DetailDensity::Fullscreen => 800,
+    };
     truncate_text(&skill.description, limit)
 }
 
@@ -876,6 +995,23 @@ fn signal_summary(skill: &crate::skill::SkillRecord) -> String {
     }
     if parts.is_empty() {
         "none".to_string()
+    } else {
+        parts.join(" | ")
+    }
+}
+
+fn author_summary(skill: &crate::skill::SkillRecord) -> String {
+    let mut parts = Vec::new();
+    if let Some(created_by) = &skill.metadata.created_by {
+        parts.push(format!("created {created_by}"));
+    }
+    if let Some(published_by) = &skill.metadata.published_by
+        && !parts.iter().any(|part| part.ends_with(published_by))
+    {
+        parts.push(format!("published {published_by}"));
+    }
+    if parts.is_empty() {
+        owner_summary(skill)
     } else {
         parts.join(" | ")
     }
@@ -1860,6 +1996,28 @@ mod tests {
 
         assert!(expanded.contains("Audit"));
         assert!(expanded.contains("Commands:"));
+    }
+
+    #[test]
+    fn roomy_detail_panel_uses_available_space_before_fullscreen() {
+        let snapshot = render_app_snapshot(App::default(), 160, 50);
+
+        assert!(snapshot.contains("Author:"));
+        assert!(snapshot.contains("More"));
+        assert!(snapshot.contains("Implementation"));
+        assert!(snapshot.contains("Repository:"));
+        assert!(snapshot.contains("Updated:"));
+        assert!(snapshot.contains("Commands:"));
+        assert!(!snapshot.contains("Audit"));
+    }
+
+    #[test]
+    fn compact_detail_panel_keeps_secondary_metadata_hidden() {
+        let snapshot = render_app_snapshot(App::default(), 80, 24);
+
+        assert!(snapshot.contains("Author:"));
+        assert!(!snapshot.contains("More"));
+        assert!(!snapshot.contains("Repository:"));
     }
 
     #[test]

@@ -13,29 +13,29 @@ expression: "render_snapshot(160, 50)"
 │◆   data-analysis                   skills.bytedance.net        Global    Active      Low       current       ││                                              │
 │!   legacy-deploy                   local/archive               Local     Error       High      blocked       ││Primary                                       │
 │◆   taproom                         local/git                   Local     Ready       None      current       ││Version: 1.8.0                                │
-│◆   web-scraper                     github                      Global    Ready       Low       current       ││Signals: none                                 │
-│                                                                                                              ││Owner: unknown                                │
-│                                                                                                              ││Access: not installable                       │
-│                                                                                                              ││State: Update                                 │
-│                                                                                                              ││Risk: Medium                                  │
+│◆   web-scraper                     github                      Global    Ready       Low       current       ││Author: unknown                               │
+│                                                                                                              ││Signals: none                                 │
+│                                                                                                              ││State/Risk: Update | Medium                   │
 │                                                                                                              ││Actions: update, remove                       │
+│                                                                                                              ││Access: not installable                       │
+│                                                                                                              ││                                              │
+│                                                                                                              ││More                                          │
+│                                                                                                              ││Source/Scope: curated | Local                 │
+│                                                                                                              ││Space: none                                   │
+│                                                                                                              ││Repository: unknown                           │
+│                                                                                                              ││Updated: unknown                              │
+│                                                                                                              ││Maintainers: none                             │
+│                                                                                                              ││Agents: 2/2 [agent-1, agent-2]                │
+│                                                                                                              ││Path: ~/.codex/skills/code-review             │
+│                                                                                                              ││Commands: update: skillroom update code-review│
+│                                                                                                              ││| remove: skillroom remove code-review        │
+│                                                                                                              ││                                              │
+│                                                                                                              ││Implementation                                │
+│                                                                                                              ││Files: 12 files, 2 dirs, 1 refs, 0 assets, 360│
+│                                                                                                              ││lines                                         │
+│                                                                                                              ││Scripts: lint.sh, review.sh                   │
+│                                                                                                              ││Tags: code, review, quality                   │
 │                                                                                                              ││+ fullscreen details  - restore               │
-│                                                                                                              ││                                              │
-│                                                                                                              ││                                              │
-│                                                                                                              ││                                              │
-│                                                                                                              ││                                              │
-│                                                                                                              ││                                              │
-│                                                                                                              ││                                              │
-│                                                                                                              ││                                              │
-│                                                                                                              ││                                              │
-│                                                                                                              ││                                              │
-│                                                                                                              ││                                              │
-│                                                                                                              ││                                              │
-│                                                                                                              ││                                              │
-│                                                                                                              ││                                              │
-│                                                                                                              ││                                              │
-│                                                                                                              ││                                              │
-│                                                                                                              ││                                              │
 │                                                                                                              ││                                              │
 │                                                                                                              ││                                              │
 │                                                                                                              ││                                              │

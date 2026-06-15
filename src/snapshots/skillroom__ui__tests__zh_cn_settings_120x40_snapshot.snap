@@ -16,18 +16,18 @@ expression: "render_app_snapshot(app, 120, 40)"
 │◆   web-scraper │  语 言                             中 文   Enter 切 换 语 言                               │                │
 │                │  缓 存  TTL                        1800s  Enter 切 换  TTL                             │                │
 │                │  缓 存                             ready  Enter 清 理 缓 存 状 态                          │                │
-│                │  安 全                             已 锁 定   不 能 关 闭 安 全 底 线                           │ble             │
+│                │  安 全                             已 锁 定   不 能 关 闭 安 全 底 线                           │ Medium         │
 │                │  来 源                             1 个 已 配 置   Enter 新 增 禁 用 来 源                     │                │
-│                │  来 源  bytedance-agentbuddy       启 用   Enter 启 用 /禁 用 来 源                          │                │
+│                │  来 源  bytedance-agentbuddy       启 用   Enter 启 用 /禁 用 来 源                          │ble             │
 │                │  测 试  bytedance-agentbuddy       not-tested  Enter 本 地 测 试 来 源                     │                │
-│                │  保 存                             持 久 化  config.toml  Enter 写 入 配 置                 │  - restore     │
+│                │  保 存                             持 久 化  config.toml  Enter 写 入 配 置                 │                │
+│                │                                                                                    │d | Local       │
 │                │                                                                                    │                │
 │                │                                                                                    │                │
 │                │                                                                                    │                │
 │                │                                                                                    │                │
-│                │                                                                                    │                │
-│                │                                                                                    │                │
-│                │                                                                                    │                │
+│                │                                                                                    │, agent-2]      │
+│                │                                                                                    │  - restore     │
 │                │                                                                                    │                │
 │                │                                                                                    │                │
 │                │                                                                                    │                │

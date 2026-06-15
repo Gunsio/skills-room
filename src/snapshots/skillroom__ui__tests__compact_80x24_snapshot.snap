@@ -14,10 +14,10 @@ expression: "render_snapshot(80, 24)"
 │!   legacy-dep  local/arch  Local     Error     ││                            │
 │◆   taproom     local/git   Local     Ready     ││Primary                     │
 │◆   web-scrape  github      Global    Ready     ││Version: 1.8.0              │
+│                                                ││Author: unknown             │
 │                                                ││Signals: none               │
-│                                                ││Owner: unknown              │
-│                                                ││Access: not installable     │
-│                                                ││State: Update               │
+│                                                ││State/Risk: Update | Medium │
+│                                                ││Actions: update, remove     │
 ╰────────────────────────────────────────────────╯╰────────────────────────────╯
 5 visible skills | 5 total | 2 local | 1 updates | 1 high risk
 Space none | Filter none | Source all
