@@ -12,6 +12,7 @@ use crate::{
     },
     config::{AppConfig, LoadedConfig, SourceKind, SourceSettings, SpaceSettings},
     i18n::{I18nCatalog, I18nKey},
+    openai_marketplace::{GhApiHttpClient, OpenAiSkillsAdapter, OpenAiSkillsConfig},
     runner::{ActionRunner, RunnerEvent, RunningAction},
     skill::{RiskLevel, SkillRecord, SkillScope, SkillState, Source, fixture_skills},
     source::{SourceAdapter, SourceOrder, SourceQuery},
@@ -44,6 +45,8 @@ pub struct App {
     settings: SettingsState,
     remote_sources_enabled: bool,
     zoomed_focus: Option<FocusArea>,
+    source_picker_open: bool,
+    source_selected: usize,
 }
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
@@ -243,13 +246,15 @@ impl App {
             settings,
             remote_sources_enabled: false,
             zoomed_focus: None,
+            source_picker_open: false,
+            source_selected: 0,
         }
     }
 
     pub(crate) fn enable_remote_sources_and_load(&mut self) {
         self.remote_sources_enabled = true;
         self.discover_remote_spaces();
-        self.load_remote_space_into_table();
+        self.load_enabled_sources_into_table();
     }
 
     pub(crate) fn enable_remote_sources(&mut self) {
@@ -295,6 +300,11 @@ impl App {
             return;
         }
 
+        if self.source_picker_open {
+            self.handle_source_picker_key(key);
+            return;
+        }
+
         if self.pending_action.is_some() {
             self.handle_action_confirmation_key(key);
             return;
@@ -324,7 +334,7 @@ impl App {
             (KeyCode::Char('+') | KeyCode::Char('='), _) => self.zoom_current_panel(),
             (KeyCode::Char('-'), _) => self.restore_zoom(),
             (KeyCode::Char('a'), _) => self.clear_filters(),
-            (KeyCode::Char('f'), _) => self.cycle_source_filter(),
+            (KeyCode::Char('f'), _) => self.open_source_picker(),
             (KeyCode::Char('i'), _) => self.toggle_local_filter(),
             (KeyCode::Char('o'), _) => self.toggle_state_filter(SkillState::UpdateAvailable),
             (KeyCode::Char('v'), _) => self.toggle_state_filter(SkillState::Active),
@@ -396,6 +406,31 @@ impl App {
             KeyCode::Enter => self.activate_setting(),
             KeyCode::Up | KeyCode::Char('k') => self.select_previous_setting(),
             KeyCode::Down | KeyCode::Char('j') => self.select_next_setting(),
+            _ => {}
+        }
+    }
+
+    fn handle_source_picker_key(&mut self, key: KeyEvent) {
+        match (key.code, key.modifiers) {
+            (KeyCode::Char('q'), _) => self.should_quit = true,
+            (KeyCode::Esc | KeyCode::Char('h') | KeyCode::Char('f'), _) => {
+                self.close_source_picker(false)
+            }
+            (KeyCode::Char('a'), _) => {
+                self.filters.source = None;
+                self.filters.local_only = false;
+                self.clamp_selection();
+                self.close_source_picker(true);
+                self.push_output("[filter] Source -> all.");
+            }
+            (KeyCode::Enter | KeyCode::Char('l'), _) => self.apply_selected_source(),
+            (KeyCode::Up | KeyCode::Char('k'), _) => {
+                self.source_selected = self.source_selected.saturating_sub(1);
+            }
+            (KeyCode::Down | KeyCode::Char('j'), _) => {
+                let last = self.source_picker_rows().len().saturating_sub(1);
+                self.source_selected = self.source_selected.saturating_add(1).min(last);
+            }
             _ => {}
         }
     }
@@ -481,7 +516,7 @@ impl App {
         ));
         if self.remote_sources_enabled {
             self.discover_remote_spaces();
-            self.load_remote_space_into_table();
+            self.load_enabled_sources_into_table();
         }
     }
 
@@ -553,12 +588,57 @@ impl App {
         }
     }
 
+    pub(crate) fn load_enabled_sources_into_table(&mut self) {
+        self.load_remote_space_into_table();
+        self.load_openai_curated_into_table();
+    }
+
+    fn load_openai_curated_into_table(&mut self) {
+        let Some(source) = self
+            .config
+            .sources
+            .iter()
+            .find(|source| source.enabled && source.kind == SourceKind::OpenAiSkills)
+            .cloned()
+        else {
+            return;
+        };
+
+        let adapter = OpenAiSkillsAdapter::new(
+            OpenAiSkillsConfig {
+                id: source.name.clone(),
+                api_url: source.url.clone(),
+                ..OpenAiSkillsConfig::default()
+            },
+            GhApiHttpClient::default(),
+        );
+        match adapter.search(&SourceQuery::new("")) {
+            Ok(records) => {
+                let total = records.len();
+                let added = merge_remote_records(&mut self.skills, records);
+                self.clamp_selection();
+                self.push_output(&format!(
+                    "[source] Loaded {total} skills from {}; {added} added to table.",
+                    source.name
+                ));
+            }
+            Err(error) => {
+                self.push_output(&format!("[source] {} unavailable: {error}.", source.name))
+            }
+        }
+    }
+
     fn prune_remote_source_records(&mut self) {
         let source_names = self
             .config
             .sources
             .iter()
-            .filter(|source| source.kind == SourceKind::AgentBuddy)
+            .filter(|source| {
+                matches!(
+                    source.kind,
+                    SourceKind::AgentBuddy | SourceKind::OpenAiSkills
+                )
+            })
             .map(|source| source.name.as_str())
             .collect::<Vec<_>>();
         self.skills.retain(|skill| {
@@ -642,7 +722,7 @@ impl App {
                 self.close_space_list(true);
                 if self.remote_sources_enabled {
                     self.prune_remote_source_records();
-                    self.load_remote_space_into_table();
+                    self.load_enabled_sources_into_table();
                 }
             }
             Err(error) => {
@@ -660,26 +740,56 @@ impl App {
         self.push_output("[filter] Reset all filters.");
     }
 
-    fn cycle_source_filter(&mut self) {
-        self.filters.local_only = false;
-        let sources = self.available_sources();
-        if sources.is_empty() {
-            self.filters.source = None;
-            self.push_output("[filter] No sources available.");
-            return;
-        }
+    fn open_source_picker(&mut self) {
+        self.source_picker_open = true;
+        self.source_selected = self.active_source_picker_index();
+        self.zoomed_focus = None;
+        self.input_mode = InputMode::Normal;
+        self.show_help = false;
+        self.set_focus(FocusArea::Filters);
+        self.push_output("[filter] Opened source picker.");
+    }
 
-        self.filters.source = match &self.filters.source {
-            None => sources.first().cloned(),
-            Some(current) => {
-                let index = sources.iter().position(|source| source == current);
-                match index {
-                    Some(index) if index + 1 < sources.len() => sources.get(index + 1).cloned(),
-                    _ => None,
-                }
-            }
+    fn close_source_picker(&mut self, applied: bool) {
+        self.source_picker_open = false;
+        self.set_focus(FocusArea::Table);
+        if applied {
+            self.push_output("[filter] Applied source selection.");
+        } else {
+            self.push_output("[filter] Closed source picker.");
+        }
+    }
+
+    fn apply_selected_source(&mut self) {
+        let Some(row) = self.source_picker_rows().get(self.source_selected).cloned() else {
+            self.push_output("[filter] No source selected.");
+            return;
         };
+        match row.choice {
+            SourcePickerChoice::All => {
+                self.filters.source = None;
+                self.filters.local_only = false;
+            }
+            SourcePickerChoice::Local => {
+                self.filters.source = None;
+                self.filters.local_only = true;
+            }
+            SourcePickerChoice::Source(source) => {
+                match source {
+                    Source::InternalRegistry if self.remote_sources_enabled => {
+                        self.load_remote_space_into_table();
+                    }
+                    Source::Curated if self.remote_sources_enabled => {
+                        self.load_openai_curated_into_table();
+                    }
+                    _ => {}
+                }
+                self.filters.source = Some(source);
+                self.filters.local_only = false;
+            }
+        }
         self.clamp_selection();
+        self.close_source_picker(true);
         self.push_output(&format!(
             "[filter] Source -> {}.",
             self.source_filter_label()
@@ -888,6 +998,12 @@ impl App {
                 self.settings.draft.safety.home_delete_guard = true;
                 self.push_output("[settings] Safety locks remain enabled.");
             }
+            SettingsAction::SourcePresetByteDance => {
+                self.toggle_or_add_source_preset(SourceSettings::bytedance());
+            }
+            SettingsAction::SourcePresetOpenAi => {
+                self.toggle_or_add_source_preset(SourceSettings::openai_curated());
+            }
             SettingsAction::SourceAdd => {
                 let source = if self
                     .settings
@@ -927,6 +1043,25 @@ impl App {
         }
     }
 
+    fn toggle_or_add_source_preset(&mut self, preset: SourceSettings) {
+        if let Some(source) = self
+            .settings
+            .draft
+            .sources
+            .iter_mut()
+            .find(|source| source.name == preset.name)
+        {
+            source.enabled = !source.enabled;
+            let name = source.name.clone();
+            let enabled = source.enabled;
+            self.push_output(&format!("[settings] Source {name} enabled={enabled}."));
+        } else {
+            let name = preset.name.clone();
+            self.settings.draft.sources.push(preset);
+            self.push_output(&format!("[settings] Added preset source {name}."));
+        }
+    }
+
     fn save_settings(&mut self) {
         let (config, warnings) = self.settings.draft.clone().normalized();
         match crate::config::save(&self.config_path, &config) {
@@ -942,7 +1077,7 @@ impl App {
                 self.close_settings(true);
                 if self.remote_sources_enabled {
                     self.prune_remote_source_records();
-                    self.load_remote_space_into_table();
+                    self.load_enabled_sources_into_table();
                 }
             }
             Err(error) => {
@@ -1104,6 +1239,9 @@ impl App {
     }
 
     pub(crate) fn source_filter_label(&self) -> String {
+        if self.filters.local_only {
+            return self.text(I18nKey::ValueLocalOnly).to_string();
+        }
         self.filters
             .source
             .as_ref()
@@ -1164,6 +1302,82 @@ impl App {
         self.pending_action.as_ref()
     }
 
+    pub(crate) fn source_picker_open(&self) -> bool {
+        self.source_picker_open
+    }
+
+    pub(crate) fn source_picker_selected(&self) -> usize {
+        self.source_selected
+    }
+
+    pub(crate) fn source_picker_rows(&self) -> Vec<SourcePickerRow> {
+        let mut rows = vec![
+            SourcePickerRow::new(
+                SourcePickerChoice::All,
+                self.text(I18nKey::SourcePickerAll),
+                format!("{} visible", self.skills.len()),
+                self.text(I18nKey::HintSourcePickerAll),
+                !self.filters.local_only && self.filters.source.is_none(),
+            ),
+            SourcePickerRow::new(
+                SourcePickerChoice::Local,
+                self.text(I18nKey::SourcePickerLocal),
+                format!("{} local", self.local_skill_count()),
+                self.text(I18nKey::HintSourcePickerLocal),
+                self.filters.local_only,
+            ),
+        ];
+
+        for source in self.enabled_source_presets() {
+            let (choice, label, hint) = match source.kind {
+                SourceKind::AgentBuddy => (
+                    SourcePickerChoice::Source(Source::InternalRegistry),
+                    self.text(I18nKey::SourcePickerByteDance).to_string(),
+                    self.text(I18nKey::HintSourcePickerByteDance).to_string(),
+                ),
+                SourceKind::OpenAiSkills => (
+                    SourcePickerChoice::Source(Source::Curated),
+                    self.text(I18nKey::SourcePickerOpenAi).to_string(),
+                    self.text(I18nKey::HintSourcePickerOpenAi).to_string(),
+                ),
+                _ => (
+                    SourcePickerChoice::Source(Source::Unknown(source.name.clone())),
+                    source.name.clone(),
+                    source.url.clone(),
+                ),
+            };
+            let active = match &choice {
+                SourcePickerChoice::Source(source) => {
+                    self.filters.source.as_ref() == Some(source) && !self.filters.local_only
+                }
+                SourcePickerChoice::All | SourcePickerChoice::Local => false,
+            };
+            rows.push(SourcePickerRow::new(
+                choice,
+                label,
+                source.last_status.clone(),
+                hint,
+                active,
+            ));
+        }
+
+        for source in self.available_sources() {
+            if rows.iter().any(|row| row.represents_source(&source)) {
+                continue;
+            }
+            let active = self.filters.source.as_ref() == Some(&source) && !self.filters.local_only;
+            rows.push(SourcePickerRow::new(
+                SourcePickerChoice::Source(source.clone()),
+                source.label().to_string(),
+                format!("{} records", self.count_source(&source)),
+                self.text(I18nKey::HintSourcePickerDetected),
+                active,
+            ));
+        }
+
+        rows
+    }
+
     pub(crate) fn settings_selected(&self) -> usize {
         self.settings.selected
     }
@@ -1206,6 +1420,8 @@ impl App {
             SettingsAction::CacheClear,
             SettingsAction::Safety,
         ];
+        actions.push(SettingsAction::SourcePresetByteDance);
+        actions.push(SettingsAction::SourcePresetOpenAi);
         actions.push(SettingsAction::SourceAdd);
         for index in 0..self.settings.draft.sources.len() {
             actions.push(SettingsAction::SourceToggle(index));
@@ -1253,6 +1469,12 @@ impl App {
                 ),
                 self.text(I18nKey::HintSafety),
             ),
+            SettingsAction::SourcePresetByteDance => {
+                self.source_preset_row(SourceSettings::bytedance())
+            }
+            SettingsAction::SourcePresetOpenAi => {
+                self.source_preset_row(SourceSettings::openai_curated())
+            }
             SettingsAction::SourceAdd => SettingsRow::new(
                 self.text(I18nKey::SettingsSources),
                 format!(
@@ -1292,6 +1514,32 @@ impl App {
                 self.text(I18nKey::HintSave),
             ),
         }
+    }
+
+    fn source_preset_row(&self, preset: SourceSettings) -> SettingsRow {
+        let state = self
+            .settings
+            .draft
+            .sources
+            .iter()
+            .find(|source| source.name == preset.name)
+            .map(|source| {
+                if source.enabled {
+                    self.text(I18nKey::ValueEnabled)
+                } else {
+                    self.text(I18nKey::ValueDisabled)
+                }
+            })
+            .unwrap_or_else(|| self.text(I18nKey::ValueMissing));
+        SettingsRow::new(
+            format!(
+                "{}{}",
+                self.text(I18nKey::SettingsPresetPrefix),
+                preset.name
+            ),
+            state,
+            self.text(I18nKey::HintSourcePreset),
+        )
     }
 
     pub(crate) fn visible_skills(&self) -> Vec<(usize, &SkillRecord)> {
@@ -1349,6 +1597,10 @@ impl App {
         let Some(space) = active_space(&self.config) else {
             return true;
         };
+
+        if skill.source != Source::InternalRegistry {
+            return true;
+        }
 
         if self.filters.scope == Some(SkillScope::Local) {
             return true;
@@ -1442,6 +1694,35 @@ impl App {
         }
         sources.sort_by(|left, right| left.label().cmp(right.label()));
         sources
+    }
+
+    fn active_source_picker_index(&self) -> usize {
+        self.source_picker_rows()
+            .iter()
+            .position(|row| row.active)
+            .unwrap_or(0)
+    }
+
+    fn enabled_source_presets(&self) -> Vec<&SourceSettings> {
+        self.config
+            .sources
+            .iter()
+            .filter(|source| source.enabled)
+            .collect()
+    }
+
+    fn local_skill_count(&self) -> usize {
+        self.skills
+            .iter()
+            .filter(|skill| is_local_source(&skill.source))
+            .count()
+    }
+
+    fn count_source(&self, source: &Source) -> usize {
+        self.skills
+            .iter()
+            .filter(|skill| &skill.source == source)
+            .count()
     }
 
     fn tick(&mut self) {
@@ -1866,6 +2147,44 @@ pub(crate) struct SpaceListRow {
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
+pub(crate) struct SourcePickerRow {
+    choice: SourcePickerChoice,
+    pub label: String,
+    pub value: String,
+    pub hint: String,
+    pub active: bool,
+}
+
+impl SourcePickerRow {
+    fn new(
+        choice: SourcePickerChoice,
+        label: impl Into<String>,
+        value: impl Into<String>,
+        hint: impl Into<String>,
+        active: bool,
+    ) -> Self {
+        Self {
+            choice,
+            label: label.into(),
+            value: value.into(),
+            hint: hint.into(),
+            active,
+        }
+    }
+
+    fn represents_source(&self, source: &Source) -> bool {
+        matches!(&self.choice, SourcePickerChoice::Source(candidate) if candidate == source)
+    }
+}
+
+#[derive(Debug, Clone, Eq, PartialEq)]
+enum SourcePickerChoice {
+    All,
+    Local,
+    Source(Source),
+}
+
+#[derive(Debug, Clone, Eq, PartialEq)]
 struct SettingsState {
     open: bool,
     selected: usize,
@@ -1893,6 +2212,8 @@ enum SettingsAction {
     CacheTtl,
     CacheClear,
     Safety,
+    SourcePresetByteDance,
+    SourcePresetOpenAi,
     SourceAdd,
     SourceToggle(usize),
     SourceTest(usize),
@@ -2083,11 +2404,23 @@ mod tests {
     }
 
     #[test]
-    fn source_filter_key_cycles_available_sources_and_clamps_selection() {
+    fn source_filter_key_opens_picker_and_applies_selection() {
         let mut app = App::default();
         app.selected = app.visible_skills().len() - 1;
 
         app.handle_key(KeyEvent::from(KeyCode::Char('f')));
+
+        assert!(app.source_picker_open());
+        assert_eq!(app.source_picker_rows()[0].label, "All sources");
+        assert!(
+            app.source_picker_rows()
+                .iter()
+                .any(|row| row.label == "OpenAI curated")
+        );
+        while app.source_picker_rows()[app.source_picker_selected()].label != "OpenAI curated" {
+            app.handle_key(KeyEvent::from(KeyCode::Down));
+        }
+        app.handle_key(KeyEvent::from(KeyCode::Enter));
 
         assert_eq!(app.filters.source, Some(Source::Curated));
         assert_eq!(app.selected_index(), 0);
@@ -2100,9 +2433,8 @@ mod tests {
                 .any(|line| line.contains("Source -> curated"))
         );
 
-        for _ in 0..5 {
-            app.handle_key(KeyEvent::from(KeyCode::Char('f')));
-        }
+        app.handle_key(KeyEvent::from(KeyCode::Char('f')));
+        app.handle_key(KeyEvent::from(KeyCode::Char('a')));
 
         assert_eq!(app.filters.source, None);
         assert_eq!(app.source_filter_label(), "all");
@@ -2519,7 +2851,7 @@ mod tests {
     }
 
     #[test]
-    fn active_space_limits_visible_list_to_that_space() {
+    fn active_space_only_limits_bytedance_marketplace_records() {
         let mut skills = fixture_skills();
         skills.push(remote_space_skill("taproom"));
         skills.push(remote_space_skill("qc-component-workflow"));
@@ -2549,12 +2881,20 @@ mod tests {
             .map(|(_, skill)| skill.name.as_str())
             .collect::<Vec<_>>();
 
-        assert_eq!(visible_names, vec!["qc-component-workflow", "taproom"]);
-        assert!(app.visible_skills().iter().all(|(_, skill)| {
-            skill
-                .tags
-                .contains(&"space:skills.byted.org/qianchuan/fe".to_string())
-        }));
+        assert!(visible_names.contains(&"qc-component-workflow"));
+        assert!(visible_names.contains(&"taproom"));
+        assert!(visible_names.contains(&"code-review"));
+        assert!(!visible_names.contains(&"other-team-skill"));
+        assert!(
+            app.visible_skills()
+                .iter()
+                .filter(|(_, skill)| skill.source == Source::InternalRegistry)
+                .all(|(_, skill)| {
+                    skill
+                        .tags
+                        .contains(&"space:skills.byted.org/qianchuan/fe".to_string())
+                })
+        );
     }
 
     #[test]
@@ -2630,9 +2970,9 @@ mod tests {
         app.handle_key(KeyEvent::from(KeyCode::Char(',')));
         move_to_setting(&mut app, "Sources");
         app.handle_key(KeyEvent::from(KeyCode::Enter));
-        move_to_setting(&mut app, "Source custom-2");
+        move_to_setting(&mut app, "Source custom-3");
         app.handle_key(KeyEvent::from(KeyCode::Enter));
-        move_to_setting(&mut app, "Test custom-2");
+        move_to_setting(&mut app, "Test custom-3");
         app.handle_key(KeyEvent::from(KeyCode::Enter));
         move_to_setting(&mut app, "Save");
         app.handle_key(KeyEvent::from(KeyCode::Enter));
@@ -2642,7 +2982,7 @@ mod tests {
             .config
             .sources
             .iter()
-            .find(|source| source.name == "custom-2")
+            .find(|source| source.name == "custom-3")
             .unwrap();
         assert!(source.enabled);
         assert!(source.last_status.contains("Api:warn"));

@@ -8,7 +8,7 @@ use ratatui::{
 };
 
 use crate::{
-    app::{App, FocusArea, InputMode, ListMode, SpaceListRow},
+    app::{App, FocusArea, InputMode, ListMode, SourcePickerRow, SpaceListRow},
     i18n::I18nKey,
     layout::{AppLayout, too_small_message},
     skill::{RiskLevel, SkillState},
@@ -42,6 +42,10 @@ pub fn render(app: &App, frame: &mut Frame<'_>) {
 
     if app.settings_open() {
         render_settings(app, frame, area, theme);
+    }
+
+    if app.source_picker_open() {
+        render_source_picker(app, frame, area, theme);
     }
 
     if app.pending_action().is_some() {
@@ -1707,6 +1711,68 @@ fn render_action_confirmation(
             .wrap(Wrap { trim: false }),
         popup,
     );
+}
+
+fn render_source_picker(
+    app: &App,
+    frame: &mut Frame<'_>,
+    area: ratatui::layout::Rect,
+    theme: ThemePalette,
+) {
+    let popup = centered_rect(area, 64, 58);
+    let mut lines = vec![
+        Line::from(vec![
+            Span::styled(app.text(I18nKey::PanelSources), theme.title()),
+            Span::raw("  "),
+            Span::styled(app.text(I18nKey::SettingsEscCancels), theme.muted()),
+        ]),
+        Line::from(Span::styled(
+            app.text(I18nKey::HintSourcePicker),
+            theme.muted(),
+        )),
+        Line::from(""),
+    ];
+
+    for (index, row) in app.source_picker_rows().into_iter().enumerate() {
+        lines.push(source_picker_line(
+            row,
+            index == app.source_picker_selected(),
+            theme,
+        ));
+    }
+
+    frame.render_widget(ratatui::widgets::Clear, popup);
+    frame.render_widget(
+        Paragraph::new(lines)
+            .style(theme.value())
+            .block(focused_block(app.text(I18nKey::PanelSources), true, theme))
+            .wrap(Wrap { trim: false }),
+        popup,
+    );
+}
+
+fn source_picker_line(row: SourcePickerRow, selected: bool, theme: ThemePalette) -> Line<'static> {
+    let marker = if selected { "> " } else { "  " };
+    let active = if row.active { "◆ " } else { "◇ " };
+    let line = Line::from(vec![
+        Span::raw(marker),
+        Span::styled(
+            active,
+            if row.active {
+                theme.title()
+            } else {
+                theme.info()
+            },
+        ),
+        Span::styled(format!("{:<22}", row.label), theme.label()),
+        Span::styled(format!("{:<18}", row.value), theme.value()),
+        Span::styled(row.hint, theme.muted()),
+    ]);
+    if selected {
+        line.style(theme.selected())
+    } else {
+        line
+    }
 }
 
 fn render_settings(

@@ -35,7 +35,7 @@ impl Default for AppConfig {
             active_space: None,
             space_search_query: default_space_search_query(),
             spaces: Vec::new(),
-            sources: vec![SourceSettings::bytedance()],
+            sources: SourceSettings::presets(),
         }
     }
 }
@@ -62,8 +62,10 @@ impl AppConfig {
         }
         if self.sources.is_empty() {
             warnings.push(ConfigWarning::DefaultSourceRestored);
-            self.sources.push(SourceSettings::bytedance());
+            self.sources = SourceSettings::presets();
         }
+        ensure_source_preset(&mut self.sources, SourceSettings::bytedance());
+        ensure_source_preset(&mut self.sources, SourceSettings::openai_curated());
         if self
             .space_search_query
             .trim()
@@ -297,12 +299,29 @@ pub struct SourceSettings {
 }
 
 impl SourceSettings {
+    pub fn presets() -> Vec<Self> {
+        vec![Self::bytedance(), Self::openai_curated()]
+    }
+
     pub fn bytedance() -> Self {
         Self {
             name: "bytedance-agentbuddy".to_string(),
             kind: SourceKind::AgentBuddy,
             url: "https://artifact-api.byted.org".to_string(),
             portal_url: Some("https://skills.bytedance.net/".to_string()),
+            enabled: true,
+            last_status: "not-tested".to_string(),
+        }
+    }
+
+    pub fn openai_curated() -> Self {
+        Self {
+            name: "openai-curated".to_string(),
+            kind: SourceKind::OpenAiSkills,
+            url: crate::openai_marketplace::DEFAULT_OPENAI_SKILLS_API_URL.to_string(),
+            portal_url: Some(
+                "https://github.com/openai/skills/tree/main/skills/.curated".to_string(),
+            ),
             enabled: true,
             last_status: "not-tested".to_string(),
         }
@@ -344,6 +363,8 @@ impl SourceSettings {
 pub enum SourceKind {
     #[serde(rename = "agentbuddy")]
     AgentBuddy,
+    #[serde(rename = "openai-skills")]
+    OpenAiSkills,
     #[serde(rename = "well-known")]
     WellKnown,
     #[default]
@@ -355,9 +376,16 @@ impl SourceKind {
     pub const fn label(self) -> &'static str {
         match self {
             Self::AgentBuddy => "agentbuddy",
+            Self::OpenAiSkills => "openai-skills",
             Self::WellKnown => "well-known",
             Self::Custom => "custom",
         }
+    }
+}
+
+fn ensure_source_preset(sources: &mut Vec<SourceSettings>, preset: SourceSettings) {
+    if !sources.iter().any(|source| source.name == preset.name) {
+        sources.push(preset);
     }
 }
 
@@ -535,6 +563,7 @@ mod tests {
         assert_eq!(config.language, Language::EnUs);
         assert!(config.safety.delete_confirmation);
         assert!(config.safety.home_delete_guard);
+        assert_eq!(config.sources.len(), 2);
         assert_eq!(config.sources[0].name, "bytedance-agentbuddy");
         assert_eq!(config.sources[0].kind, SourceKind::AgentBuddy);
         assert_eq!(config.sources[0].url, "https://artifact-api.byted.org");
@@ -542,6 +571,8 @@ mod tests {
             config.sources[0].portal_url.as_deref(),
             Some("https://skills.bytedance.net/")
         );
+        assert_eq!(config.sources[1].name, "openai-curated");
+        assert_eq!(config.sources[1].kind, SourceKind::OpenAiSkills);
         assert_eq!(config.active_space, None);
         assert_eq!(config.space_search_query, "");
         assert!(config.spaces.is_empty());
@@ -637,7 +668,7 @@ mod tests {
         assert_eq!(normalized.schema_version, CONFIG_SCHEMA_VERSION);
         assert!(normalized.safety.delete_confirmation);
         assert!(normalized.safety.home_delete_guard);
-        assert_eq!(normalized.sources.len(), 1);
+        assert_eq!(normalized.sources.len(), 2);
         assert_eq!(warnings.len(), 4);
     }
 }

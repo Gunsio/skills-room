@@ -8,6 +8,7 @@ pub mod i18n;
 pub mod inventory;
 pub mod loaders;
 pub mod local_inventory;
+pub mod openai_marketplace;
 pub mod parser;
 pub mod runner;
 pub mod scan;
@@ -62,7 +63,7 @@ fn load_app_with_spinner(terminal: &mut ratatui::DefaultTerminal) -> color_eyre:
         app.discover_remote_spaces();
 
         let _ = sender.send(LoadingEvent::Step(3));
-        app.load_remote_space_into_table();
+        app.load_enabled_sources_into_table();
 
         let _ = sender.send(LoadingEvent::Done(Box::new(app)));
     });

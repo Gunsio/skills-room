@@ -37,6 +37,8 @@ impl SourceCheckReport {
 pub fn check_source_settings(source: &SourceSettings) -> SourceCheckReport {
     if is_agentbuddy_portal(source) {
         check_agentbuddy_source()
+    } else if source.kind == SourceKind::OpenAiSkills || source.name == "openai-curated" {
+        check_openai_source(source)
     } else {
         check_custom_source(source)
     }
@@ -83,6 +85,23 @@ fn check_custom_source(source: &SourceSettings) -> SourceCheckReport {
     }
 }
 
+fn check_openai_source(source: &SourceSettings) -> SourceCheckReport {
+    SourceCheckReport {
+        checks: vec![
+            SourceCheck::skipped(
+                SourceCheckKind::Cli,
+                "gh api is preferred when available; curl fallback is supported",
+            ),
+            SourceCheck::skipped(SourceCheckKind::Auth, "public GitHub source"),
+            SourceCheck::pass(SourceCheckKind::Api, format!("{} configured", source.url)),
+            SourceCheck::skipped(
+                SourceCheckKind::Download,
+                "install workflow is not wired yet",
+            ),
+        ],
+    }
+}
+
 fn is_agentbuddy_portal(source: &SourceSettings) -> bool {
     source.kind == SourceKind::AgentBuddy
         || source.name == "bytedance-agentbuddy"
@@ -122,5 +141,13 @@ mod tests {
                 .iter()
                 .any(|check| check.kind == SourceCheckKind::Download)
         );
+    }
+
+    #[test]
+    fn openai_source_check_is_a_verified_preset() {
+        let report = check_source_settings(&SourceSettings::openai_curated());
+
+        assert!(report.status_line().contains("Api:pass"));
+        assert!(report.output_line().contains("GitHub"));
     }
 }
